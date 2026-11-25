@@ -6,9 +6,9 @@
 
 Research paper, LaTeX source, vector figures, preregistrations, verified raw experimental JSON logs, and automated forensic verification scripts for **Priced-Quanta / Project LEAN** — separated cleanly from the [Meta Hackathon engineering/demo repository](https://github.com/Mehardeep-Singh-GG/lean-meta-hackathon).
 
-> **Paper Artifacts (Official TMLR Style, 25 pages):**
-> - **Preprint PDF (`[preprint]` mode):** [`paper/priced_quanta_tmlr_preprint.pdf`](paper/priced_quanta_tmlr_preprint.pdf)
+> **Paper Artifacts (Official TMLR Style — 11.4-page main body $\le 12$p fast-track, 21 pages total):**
 > - **Anonymous Double-Blind Submission PDF (`\usepackage{tmlr}`):** [`paper/priced_quanta_tmlr_submission.pdf`](paper/priced_quanta_tmlr_submission.pdf)
+> - **Preprint PDF (`[preprint]` mode):** [`paper/priced_quanta_tmlr_preprint.pdf`](paper/priced_quanta_tmlr_preprint.pdf)
 > - **Plain-Text Export:** [`paper/priced_quanta_tmlr_paper.txt`](paper/priced_quanta_tmlr_paper.txt)
 > - **LaTeX Source & BibTeX:** [`paper/main.tex`](paper/main.tex), [`paper/main_preprint.tex`](paper/main_preprint.tex), [`paper/references.bib`](paper/references.bib)
 > - **Quantized 30B Weights Release (4 `.safetensors` shards, `8.57 GiB`):** hosted on [`lean-meta-hackathon` v1.0.0](https://github.com/Mehardeep-Singh-GG/lean-meta-hackathon/releases/tag/v1.0.0)
@@ -19,11 +19,10 @@ Research paper, LaTeX source, vector figures, preregistrations, verified raw exp
 
 Uniform post-training quantization assigns identical bit-widths to attention routing projections and feed-forward MLP blocks, despite mechanistic evidence that MLPs primarily store static associative facts while attention executes context routing. We investigate this asymmetry theoretically and empirically across pretrained transformers spanning **70M to 29.78B parameters**:
 
-- **Theory (Section 2 & Appendix A):** Corrected Wedin $\sin\Theta$ singular-subspace stability bound, Cauchy–Schwarz argmax routing margin condition, first-order linearized MLP associative noise characterization (Theorem 1, Lemma 1), and LP-relaxation optimality gap for efficiency-sorted greedy Multiple-Choice Knapsack allocation (Proposition 1).
-- **Controlled Scaling & Preregistered Blind Ledger (Section 3 & Appendix C):** Synthetic multi-world scaling verification (`m3`–`m9`) and a forensically audited ledger of all 18 preregistered blind predictions (`M10`, `M10B`, `M11`: `7/12` valid empirical hits inside 95% PIs, `8/12` counting extrapolated `P_LOCK_3`, plus 2 BPE-invalidated and 4 analytical/synthetic entries).
-- **Cross-Family Survival & Byte-Parity 4b/3b Evaluation (Sections 4.1–4.2):** Transformer-bit half-life asymmetry ratios of `1.20x–5.30x` across valid checkpoints (`Pythia-70M/160M`, `GPT-2`, near-chance `Pythia-410M`; exact `ddof=1` Student-$t$ 95% CIs); unconfounded 4b/3b backbone byte-parity gains on `Pythia-160M` (`+5.5 pp`, `-1.50 nats`) and `SmolLM2-360M` (`+8.0 pp` raw cloze, `+1.0 pp` RAG cloze); and MSE-optimal group clipping recovery on `Qwen2.5-3B-Instruct` (`12.0% -> 94.0%` vs `89.8%` unclipped prefix baseline, exact two-sided permutation `p = 0.0625`, explicitly disclosing the clipping confound and closed-book trade-off).
-- **Physical 8.00 GiB RTX 4060 7B Serving (Section 4.3):** 4-bit/2-bit AWQ-calibrated `GQA-KAC` packs `Qwen2.5-7B-Instruct` (`14.19 GiB` FP16) into `3.84 GiB` weights (`4.34 GiB` allocated VRAM) and lifts retrieval cloze from `12.0%` to `88.0%` using 48 disjoint WikiText-2 calibration sequences (with gentler AWQ exponent `alpha = 0.4` winning in `74/84 = 88.1%` of SwiGLU projections).
-- **30B Anatomy, Block-Cholesky Hessian Compensation, and Split-K Triton Serving (Section 5):** Full 52-layer spectral profiling of `meta-models/Muse-Glimmer-30B` (`29.78B` params, `55.46 GiB` BF16), a `6.0805 GiB` (`1.7541 bpp`) greedy Lagrangian blueprint, `-47.0%` macro calibration output activation $L_2$ error reduction across 8 real sliced 30B projections (`m15`), and a live 52-layer deferred-reduction Split-K fused Triton daemon running beneath an `8.00 GiB` GPU cap (`7.29 GiB` PyTorch / `7.92 GiB` `nvidia-smi` + `~3.26 GiB` host CPU RAM offload, `9.0 tok/s`).
+- **Theory, Primitives & Preregistered Ledger (Section 2 & Appendices A–C):** Corrected Wedin $\sin\Theta$ singular-subspace stability bound, Cauchy–Schwarz argmax routing margin condition, first-order linearized MLP associative noise characterization (Theorem 1, Lemma 1), LP-relaxation optimality gap for efficiency-sorted greedy Multiple-Choice Knapsack allocation (Proposition 1), damped Block-Cholesky Hessian compensation + deferred-reduction Split-K Triton algorithms (Appendix B), controlled synthetic scaling (`m3`–`m9`), and a forensically audited ledger of all 18 preregistered blind predictions (`M10`, `M10B`, `M11`: `7/12` valid empirical hits inside 95% PIs, `8/12` counting extrapolated `P_LOCK_3`, plus 2 BPE-invalidated and 4 analytical/synthetic entries; Appendix C).
+- **Cross-Family Survival & Byte-Parity 4b/3b Evaluation (Sections 3.1–3.2):** Transformer-bit half-life asymmetry ratios of `1.20x–5.30x` across valid checkpoints (`Pythia-70M/160M`, `GPT-2`, near-chance `Pythia-410M`; exact `ddof=1` Student-$t$ 95% CIs); unconfounded 4b/3b backbone byte-parity gains on `Pythia-160M` (`+5.5 pp`, `-1.50 nats`) and `SmolLM2-360M` (`+8.0 pp` raw cloze, `+1.0 pp` RAG cloze); and MSE-optimal group clipping recovery on `Qwen2.5-3B-Instruct` (`12.0% -> 94.0%` vs `89.8%` unclipped prefix baseline, exact two-sided permutation `p = 0.0625`, explicitly disclosing the clipping confound and closed-book trade-off).
+- **Physical 8.00 GiB RTX 4060 7B Serving (Section 3.3):** 4-bit/2-bit AWQ-calibrated `GQA-KAC` packs `Qwen2.5-7B-Instruct` (`14.19 GiB` FP16) into `3.84 GiB` weights (`4.34 GiB` allocated VRAM) and lifts retrieval cloze from `12.0%` to `88.0%` using 48 disjoint WikiText-2 calibration sequences (with gentler AWQ exponent `alpha = 0.4` winning in `74/84 = 88.1%` of SwiGLU projections).
+- **30B Anatomy, Block-Cholesky Hessian Compensation, and Split-K Triton Serving (Section 4 & Appendix D):** Full 52-layer spectral profiling of `meta-models/Muse-Glimmer-30B` (`29.78B` params, `55.46 GiB` BF16), a `6.0805 GiB` (`1.7541 bpp`) greedy Lagrangian blueprint, `-47.0%` macro calibration output activation $L_2$ error reduction across 8 real sliced 30B projections (`m15`), and a live 52-layer deferred-reduction Split-K fused Triton daemon running beneath an `8.00 GiB` GPU cap (`7.29 GiB` PyTorch / `7.92 GiB` `nvidia-smi` + `~3.26 GiB` host CPU RAM offload, `9.0 tok/s`).
 
 ---
 
@@ -40,8 +39,8 @@ priced-quanta-research/
 ├── paper/
 │   ├── main.tex                              # Double-blind anonymous TMLR source
 │   ├── main_preprint.tex                     # De-anonymized [preprint] TMLR source
-│   ├── priced_quanta_tmlr_submission.pdf     # 25-page anonymous submission PDF
-│   ├── priced_quanta_tmlr_preprint.pdf       # 25-page preprint PDF
+│   ├── priced_quanta_tmlr_submission.pdf     # 21-page anonymous submission PDF (<=12p main body)
+│   ├── priced_quanta_tmlr_preprint.pdf       # 21-page preprint PDF (<=12p main body)
 │   ├── priced_quanta_tmlr_paper.txt          # Plain-text export of the full paper
 │   ├── references.bib                        # 58 verified BibTeX references
 │   ├── tmlr.sty, tmlr.bst, math_commands.tex # Official TMLR style files (unmodified)
