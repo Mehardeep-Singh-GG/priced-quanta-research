@@ -1,0 +1,1674 @@
+================================================================================
+Priced-Quanta: Decoupling Algorithmic Routing from Associative Memory
+for Sub-4-Bit and 8 GiB Edge Language Model Serving
+Authors: Mehardeep Singh (github.com/Mehardeep-Singh-GG),
+         Gurarpit Singh (github.com/gurarpitzz)
+Format: Transactions on Machine Learning Research (TMLR) Style
+Pages: 25
+Research Repository: https://github.com/Mehardeep-Singh-GG/priced-quanta-research
+================================================================================
+
+
+--- Page 1 / 25 ---
+
+Priced-Quanta: Decoupling Algorithmic Routing from As-
+sociative Memory for Sub-4-Bit and 8 GiB Edge Language
+Model Serving
+Mehardeep Singh github.com/Mehardeep-Singh-GG
+Independent Researcher
+Gurarpit Singh github.com/gurarpitzz
+Independent Researcher
+Abstract
+Uniform post-training quantization assigns identical bit-widths to attention routing projec-
+tions and feed-forward multilayer perceptron (MLP) blocks, despite mechanistic evidence
+that MLPs primarily store static associative facts while attention executes context rout-
+ing. We investigate this asymmetry theoretically and empirically across pretrained trans-
+formers spanning 70M to 29.78B parameters. Using a corrected Wedin sin Θ subspace
+bound, a Cauchy–Schwarz argmax routing margin condition, and a ﬁrst-order linearized
+MLP noise analysis, we characterize how rank-order attention routing tolerates perturbation
+diﬀerently from dense associative key-value recall, and formalize mixed-precision allocation
+with external retrieval as a Multiple-Choice Knapsack Problem ( KAC). Across pretrained
+checkpoints without tokenizer-ﬂoor artifacts ( Pythia-70M/160M, GPT-2, and near-chance
+Pythia-410M), progressive quantization degrades factual cloze faster than procedural lookup
+(transformer-bit half-life ratios 1.20×–5.30×), while our forensic code audit also uncovers
+a BPE ﬁrst-token scoring artifact on digit-splitting tokenizers ( SmolLM2, Qwen2.5) that we
+explicitly ﬂag rather than overclaim. Under strict backbone bit parity ( ∆ = 0 .000%) at
+4-bit/3-bit precision paired with an idealized 17.81 KiB BM25 store over the evaluation
+facts, KAC improves retrieval-augmented cloze on Pythia-160M (+5.5 pp, −1.50 nats loss)
+and SmolLM2-360M (+8.0 pp raw cloze, +1.0 pp retrieval cloze). On Qwen2.5-3B-Instruct,
+MSE-optimal group clipping rescues 3-bit MLP collapse ( 12.0% → 94.0% retrieval cloze
+across ﬁve seeds vs. 89.8% for an unclipped preﬁx baseline; exact two-sided permutation
+p = 0 .0625), explicitly trading closed-book raw cloze ( 62.4% → 20.2%) and sequence
+loss ( 6.72 → 9.45 nats) for retrieval accuracy. On a physical 8.00 GiB RTX 4060 Lap-
+top GPU where FP16 Qwen2.5-7B-Instruct (14.19 GiB) crashes with OOM, 4-bit/2-bit
+A WQ-calibratedGQA-KAC ﬁts in 3.84 GiB weights ( 4.34 GiB allocated VRAM) and lifts
+retrieval cloze from 12.0% to 88.0% using 48 disjoint WikiText-2 calibration sequences (with
+α = 0.4 winning in 88.1% of projections). Finally, scaling to Muse-Glimmer-30B (29.78B
+parameters, 55.46 GiB BF16), greedy Lagrangian allocation designs a 6.08 GiB ( 1.754 bpp)
+ternary/mixed-bit blueprint, damped Block-Cholesky Hessian compensation reduces in-
+sample calibration output error by 47.0% across eight real sliced 30B projections, and a
+custom deferred-reduction Split-K fused Triton engine executes all 52 real text layers be-
+neath an 8.00 GiB GPU wall ( 7.29 GiB PyTorch allocated, 7.92 GiB nvidia-smi, 3.26 GiB
+host CPU oﬄoad, 9.0 tok/s). We report all preregistered misses, calibration overlaps, and
+protocol limitations transparently.
+1 Introduction
+Running multi-billion-parameter autoregressive transformers ( Vaswani et al. , 2017) on consumer 8.00 GiB
+GPUs and laptops is fundamentally constrained by memory capacity. In 16-bit precision, static weights
+1
+
+
+--- Page 2 / 25 ---
+
+alone require 14.19 GiB for a 7.6B checkpoint and 55.46 GiB for a 29.78B checkpoint. Existing workarounds
+expose a sharp trade-oﬀ: out-of-core layer oﬄoading ( Sheng et al. , 2023) reduces GPU residency at the
+cost of PCIe/storage bandwidth stalls, whereas post-training quantization (PTQ) methods such as GPTQ
+(Frantar et al., 2023), A WQ (Lin et al. , 2024), SmoothQuant ( Xiao et al. , 2023), HQQ ( Badri & Shaji , 2023),
+QuIP/QuIP# ( Chee et al. , 2023; Tseng et al. , 2024), and AQLM ( Egiazarian et al. , 2024) typically apply a
+uniform bit-width across both attention and feed-forward MLP sub-blocks.
+Mechanistic interpretability motivates asymmetric allocation. Prior studies show that MLP blocks act sub-
+stantially as key-value associative memories ( Geva et al., 2021; Meng et al. , 2022) storing static factual triples
+in superposition ( Elhage et al. , 2022)—though localization is non-strict ( Hase et al. , 2023)—while attention
+heads mediate induction and context copying ( Olsson et al. , 2022; Ainslie et al. , 2023). Independently,
+compression studies observe that quantization disproportionately harms long-tail factual recall relative to
+general ﬂuency ( Kandpal et al. , 2023; Jaiswal et al. , 2024). Because SwiGLU MLPs occupy 75%–86% of
+non-embedding transformer weights whereas Grouped-Query Attention (GQA) key-value projections can
+occupy under 1% while serving 8×–16× as many query heads, treating both uniformly misallocates scarce
+edge bits.
+We introduce Project LEAN (Low-bit Externalized Associative Network ) and the Priced-Quanta formu-
+lation: we externalize static factual lookup to a deterministic BM25 index ( Robertson & Zaragoza , 2009),
+compress feed-forward MLPs aggressively ( 1.58–3 bits), and reallocate bits to protect attention projections
+under a constrained Multiple-Choice Knapsack budget.
+Claims, evidence, and scope roadmap. In strict accordance with TMLR’s claim–evidence standards,
+every claim in this paper is scoped explicitly to what our veriﬁed artifacts support:
+1. Theoretical characterization and controlled validation (Sections 2 and 3): We prove a cor-
+rected Wedin sin Θ stability bound and Cauchy–Schwarz argmax routing margin condition alongside a
+ﬁrst-order linearized MLP noise analysis (Theorem 1, Lemma 1) and an MCKP greedy optimality gap
+(Proposition 1). Controlled synthetic worlds verify memory linearity ( R2 = 0.999992), core invariance
+(γcore = −0.0024), and greedy-vs-DP tightness ( 0.52% gap), while a preregistered blind ledger across
+18 predictions transparently documents every hit, miss, formulaic estimate, and script clamp audited in
+post-hoc veriﬁcation.
+2. Cross-family survival asymmetry and tokenizer audit (Section 4.1): Across pretrained models
+without tokenizer-ﬂoor artifacts ( Pythia-70M/160M, GPT-2, and near-chance Pythia-410M;N = 3 seeds),
+factual cloze degrades faster than procedural lookup ( 1.20×–5.30× transformer-bit half-life ratios; exact
+Student-t 95% CIs reported). We explicitly document a BPE ﬁrst-token bug aﬀecting digit-splitting
+tokenizers ( SmolLM2, Qwen2.5) and retract procedural-retention claims on those checkpoints.
+3. Backbone byte-parity 4-bit/3-bit compression and MSE clipping recovery (Section 4.2): At
+exact backbone bit parity ( ∆ = 0.000%) with 4-bit attention and 3-bit MLPs, KAC improves retrieval
+cloze on Pythia-160M (+5.5 pp, −1.50 nats loss) and SmolLM2-360M (+8.0 pp raw cloze, +1.0 pp retrieval
+cloze). On Qwen2.5-3B-Instruct, both naive KAC and GQA-KAC assign identical 4b/3b maps; en-
+abling FP32 MSE group clipping ( search_scales) rescues 3-bit MLP collapse ( 12.0% → 94.0% across
+ﬁve seeds vs. 89.8% for an unclipped lexicographical-preﬁx baseline, two-sided permutation p = 0.0625),
+while explicitly exposing the clipping confound, shared-probe overlap, and closed-book NLL trade-oﬀ
+(6.72 → 9.45 nats).
+4. Physical 8.00 GiB R TX 4060 7B serving via leak-free WikiT ext-2 A WQ (Section 4.3): Where
+FP16 Qwen2.5-7B-Instruct (14.19 GiB) exceeds 8.00 GiB VRAM, 4-bit/2-bit GQA-KAC packs weights
+to 3.84 GiB ( 4.34 GiB allocated VRAM, 3.66 GiB headroom), and 48 disjoint WikiText-2 ( Merity et al. ,
+2017) calibration sequences with per-layer α search lift retrieval cloze from 12.0% to 88.0% (ﬁndingα = 0.4
+optimal in 74/84 = 88.1% of MLP projections).
+5. 30B anatomy , Hessian output-error reduction, and Split-K T riton serving (Section 5): On
+real Muse-Glimmer-30B (29.78B params, 55.46 GiB BF16) shards, we proﬁle all 416 real text pro-
+jections (revealing low-rank GQA k_proj vs. high-rank up_proj and heavy-tailed o_proj/down_proj),
+2
+
+
+--- Page 3 / 25 ---
+
+derive a 6.08 GiB (1.754 bpp) greedy Lagrangian blueprint, measure 47.0% macro calibration output-error
+reduction via Block-Cholesky Hessian compensation on eight real sliced projections, and reconcile three
+distinct 30B artifacts—culminating in a live 52-layer deferred-reduction Split-K fused Triton daemon run-
+ning beneath an 8.00 GiB GPU cap ( 7.29 GiB PyTorch / 7.92 GiB nvidia-smi + 3.26 GiB CPU oﬄoad,
+9.0 tok/s).
+2 Theoretical Framework: Functional Asymmetry and Priced-Quanta Allocation
+2.1 Deﬁnitions and Layer-Wise Surrogate Model
+Consider an L-layer autoregressive transformer with hidden width d, head dimension dk, Hq query heads,
+Hkv key-value heads (GQA mapping g(h) ∈ {1,...,H kv} for eachh ∈ {1,...,H q}), and SwiGLU width dmlp.
+Throughout, we use column-vector inputs x ∈ Rdin and weight matrices W ∈ Rdout×din with standardized
+quantization residual E ≡ W − ˆW (so ˆW = W − E).
+Deﬁnition 1 (Group-Wise Weight Quantization) . For a weight matrix W ∈ Rdout×din , group size gsz, and
+bit-width b ∈ { 1, log2 3, 2, 3, 4, 6, 8, 16}, group-wise quantization partitions each row into Gr = ⌈din/gsz⌉
+contiguous blocks with per-group scale sk (and optional oﬀset zk), yielding reconstructed weights ˆW = W −
+E. Under high-rate Bennett white-noise assumptions (which serve as a ﬁrst-order analytical baseline and
+extrapolate only approximately to b ≤ 2 heavy-tailed weights), entrywise noise variance scales as σ2
+E(b) ∝ 2−2b.
+Following Frantar et al. (2023), we optimize each linear layer i using the layer-wise output reconstruction
+MSE surrogate over Ncal calibration input tokens stacked as rows of Xi ∈ RNcal×din :
+Eout( ˆWi) = 1
+Ncal
+‖‖(Wi − ˆWi)X ⊤
+i
+‖‖2
+F = 1
+2 Tr
+(
+Hi E⊤
+i Ei
+)
+, Hi ≡ 2
+Ncal
+X ⊤
+i Xi ⪰ 0, (1)
+where Hi ∈ Rdin×din is the uncentered input activation Gram matrix. Using ( 1) as a per-layer proxy
+avoids assuming uniform output-channel Hessian curvature ( ∇2
+yi L ∝ I) across layers; cross-layer functional
+importance is instead incorporated via explicit routing leverage weights ωi ≥ 0 in Section 2.3.
+Deﬁnition 2 (Dual-Operator Sub-Block Decomposition) . Within each decoder layer ℓ (evaluated on exact
+single-layer inputs x1,..., xt ∈ Rd without positional rotation for analytical clarity), we contrast:
+1. Bilinear attention routing: For head h with per-head projections W (h)
+q , W (g(h))
+k , W (g(h))
+v ∈ Rdk×d
+and output slice W (h)
+o ∈ Rd×dk , the bilinear query-key operator is M (h) = ( W (h)
+q )⊤W (g(h))
+k ∈
+Rd×d, producing logits S(h)
+t,j = d−1/2
+k x⊤
+t M (h)xj, weights A(h)
+t,: = softmax( S(h)
+t,: ), and output
+y(h)
+attn = W (h)
+o
+∑
+j≤tA(h)
+t,j W (g(h))
+v xj. (With Rotary Position Embeddings, Su et al. , 2024, M (h)
+t−j =
+(W (h)
+q )⊤Rt−jW (g(h))
+k where ∥Rt−j∥2 = 1.)
+2. MLP key-value associative memory: A gated SwiGLU block computes the weighted sum ymlp(x) =∑dmlp
+m=1 vmϕ(k⊤
+mx, u⊤
+mx) with ϕ(a,b ) = SiLU(a) ·b and vm = ( Wdown):,m (Geva et al. , 2021). For ana-
+lytical tractability in Theorem 1, we analyze the simpliﬁed single-activation key-value readout ymlp(x) =∑dmlp
+m=1 vmψ(k⊤
+mx) with Lψ-Lipschitz activation ψ.
+Deﬁnition 3 (Operational Quantization Survival Half-Life) . For a task family T with FP16 baseline accu-
+racyA0 >A chance, let retention along a discrete quantization ladder {bk} be deﬁned either as raw retention
+Rraw
+T (b) = A(b)/A0 or chance-corrected excess retention Rexc
+T (b) = ( A(b) −Achance)/(A0 −Achance). The
+survival half-life h1/2(T ) (or bit budget B1/2(T )) is the piecewise-linearly interpolated threshold where RT
+ﬁrst drops to 0.50. If a curve never crosses 0.50 down to the lowest tested bit budget bmin, B1/2 is uncrossed
+and strictly bounded above by bmin (we explicitly ﬂag any extrapolated ratios in Section 4.1 and Appendix C).
+2.2 Perturbation Asymmetry Between Attention Routing and Associative Recall
+Theorem 1 (Single-Layer Attention Routing Stability vs. Linearized MLP Noise Sensitivity) . Consider a
+single NoPE transformer layer evaluated on exact context vectors {xj}t
+j=1 with radius Rx = max 1≤j≤t ∥xj∥2.
+3
+
+
+--- Page 4 / 25 ---
+
+1. Attention subspace stability and argmax routing invariance: Let M = W ⊤
+q Wk ∈ Rd×d have
+singular values σ1(M ) > σ2(M ) ≥ · · · ≥ 0 with spectral gap ∆σ = σ1(M ) −σ2(M ) > 0, and let
+EM ≡ ˆM − M = −E⊤
+q Wk − W ⊤
+q Ek + E⊤
+q Ek.
+(a) Whenever ∥EM ∥2 < ∆σ, Wedin ’s sin Θ theorem (Wedin, 1972) guarantees leading singular subspace
+stability:
+max
+{
+sin Θ(u1, ˆu1), sin Θ(v1, ˆv1)
+}
+≤ ∥EM ∥2
+∆σ − ∥EM ∥2
+. (2)
+(b) Independently of ( 2), for query xt with unique unperturbed target j∗ = arg max jSt,j and mar-
+gin γmin = min j̸=j∗ (St,j∗ − St,j) > 0, the discrete argmax routing decision is strictly invariant
+(arg maxj ˆAt,j =j∗) whenever
+∥EM ∥2 < γmin
+√dk
+2R2x
+. (3)
+2. First-order linearized MLP associative noise: Consider the single-activation key-value MLP
+y(x) = ∑dmlp
+m=1 vmψ(k⊤
+mx) perturbed by independent zero-mean per-column noise with covariances
+E[ev,me⊤
+v,m′] = δm,m′σ2
+EId and E[ek,me⊤
+k,m′] = δm,m′σ2
+EIdin , independent of x. Evaluating the ﬁrst-order
+linearized readout ˆylin(x) = ∑dmlp
+m=1(vm − ev,m)(ψ(k⊤
+mx) −ψ′(k⊤
+mx)(e⊤
+k,mx)) (exact for piecewise-linear ψ
+within a linear region) around target association m∗, the additive perturbation ηlin = ˆylin(x) − y(x) has
+exact expected squared norm
+E[∥ηlin∥2
+2] = σ2
+E
+dmlp∑
+m=1
+∥vm∥2
+2 E
+[
+ψ′(k⊤
+mx)2∥x∥2
+2
+]
++dσ 2
+E
+dmlp∑
+m=1
+E
+[
+ψ(k⊤
+mx)2]
++ O(σ4
+E), (4)
+yielding the ﬁrst-order total-norm associative SINR
+SINRfact(b) = ∥vm∗ ∥2
+2 E[ψ(k⊤
+m∗ x)2]
+Icrosstalk +σ2
+E(b)
+(∑dmlp
+m=1 ∥vm∥2
+2 E[ψ′(k⊤mx)2∥x∥2
+2] +d ∑dmlp
+m=1 E[ψ(k⊤mx)2]
+)
++ O(σ4
+E)
+, (5)
+where Icrosstalk = E[∥ ∑
+j̸=m∗ vjψ(k⊤
+j x)∥2
+2]. Projecting onto the unit decoding direction um∗ =
+vm∗/∥vm∗ ∥2 replacesd by 1 in the value-noise term, replaces ∥vm∥2
+2 by (u⊤
+m∗ vm)2 in the key-noise term,
+and projects crosstalk to E[(u⊤
+m∗ ξ)2], while retaining the full sum over all dmlp superimposed neurons.
+The full proof and Softmax Jacobian Lemma (Lemma 1, establishing ∥J ∥2 ≤ 2ϵ for sharp heads with
+maxjaj = 1 −ϵ) appear in Appendix A.
+Remark 1 (Mechanistic Interpretation and Architectural Caveats) . Theorem 1 highlights two structural
+contrasts without claiming a closed-form universal bit threshold across architectures. First, attention routing
+requires only preserving a ﬁnite argmax margin ( 3) over tokens already present in the context window, whereas
+MLP associative recall sums quantization perturbations across all dmlp superimposed neurons against pre-
+existing polysemantic crosstalk Icrosstalk (Elhage et al. , 2022). Second, in GQA architectures where Hkv ≪
+Hq, quantizing Wk corrupts EM simultaneously across all Hq/Hkv shared query heads, while quantizing Wv
+directly perturbs the copied value output y(h)
+attn across those same heads. Conversely, note two theoretical limits
+of Theorem 1: (i) SwiGLU blocks ( SiLU(a) ·b) possess unbounded gradients as |b| → ∞ , and b ∈ { 1.585, 2}
+introduces O(1) relative weight perturbations beyond ﬁrst-order small-σE validity; and (ii) multi-layer residual
+propagation accumulates input errors ∆xt across depth. Both motivate the empirical calibration and Hessian
+compensation techniques evaluated in Sections 4 and 5.
+2.3 Multiple-Choice Knapsack Bit Allocation
+Given a physical byte budget Btarget and external index footprint Sindex, we assign each projection i ∈
+{1,...,M } a precision option b ∈ Pi with exact byte cost Si(b) and weighted negative distortion utility
+vi(b) = −ωiDi(b) ≤ 0 (ωi ≥ 0, Di(b) ≥ 0):
+max
+{xi,b∈{0,1}}
+M∑
+i=1
+∑
+b∈Pi
+xi,bvi(b) subject to
+∑
+b∈Pi
+xi,b = 1 ∀i,
+M∑
+i=1
+∑
+b∈Pi
+xi,bSi(b) +Sindex ≤Btarget. (6)
+4
+
+
+--- Page 5 / 25 ---
+
+Proposition 1 (LP-Relaxation Optimality Bound of Eﬃciency-Sorted Greedy MCKP) . Assume ( 6) is
+feasible ( ∑M
+i=1 minb∈PiSi(b) + Sindex ≤ Btarget) with ωi ≥ 0 and Di(b) ≥ 0. After discarding simple- and
+LP-dominated options within each Pi so only strictly increasing LP-undominated upper-concave-hull choices
+remain, initialize each tensor at its minimum-cost choice and greedily apply precision upgrades b → b′ in
+descending order of marginal eﬃciency ei(b → b′) = (vi(b′) −vi(b))/(Si(b′) −Si(b)) until the next upgrade
+exceedsBtarget. Letting V ∗
+DP be the exact integer optimum and VGreedy be this truncated greedy objective,
+V ∗
+DP −VGreedy ≤ max
+i∈{1,...,M }
+max
+b1,b2∈Pi
+(
+vi(b2) −vi(b1)
+)
+. (7)
+Proof is given in Appendix A.2. In our 30B blueprint solver ( M15), rather than running pseudo-polynomial
+DP over 6.5 × 109 byte states, we directly execute this eﬃciency-sorted greedy Lagrangian upgrade loop over
+analytical tier distortion priors (Section 5.2).
+2.4 Algorithmic and Systems Primitives
+Combining asymmetric bit allocation with low-bit stability and sub-8 GiB GPU execution relies on four
+primitives:
+1. Activation-aware channel scaling and MSE group clipping (A WQ-KAC): Following Lin et al.
+(2024), we measure per-input-channel mean absolute calibration activation magnitudes sx ∈ Rdin , rescale
+weight columns via W ′ = W diag(s) with s = ( sx/¯sx)α (α ∈ { 0.4, 0.5, 0.6, 0.75}) and inverse input
+scaling diag(s)−1x, and perform vectorized group-wise clipping ratio search minimizing per-group MSE.
+2. Damped Block-Cholesky Hessian compensation with sparse outliers (Priced-Quanta v2):
+Extending GPTQ ( Frantar et al. , 2023) to mixed-bit layers with sparse CSR extraction of the top
+ρ ∈ { 0.35%, 0.50%} salient columns O (selected by column activation-weighted norm ∥W:,j∥2 ∥X:,j∥2),
+we restrict H and W strictly to non-outlier columns Oc, factor H −1
+Oc,Oc = U ⊤U via upper Cholesky
+decomposition (ensuring exact Schur-complement propagation across blocks B =gsz ∈ { 128, 256}; Algo-
+rithm 1 in Appendix B), and apply an output-scale reﬁnement blend ( 0.35sgroup + 0.65sHess-opt, where
+sHess-opt,r = ⟨ytrue,r, ypred,r⟩/∥ypred,r∥2
+2 minimizes per-row block output MSE) during packing.
+3. Bit-exact 5-trit-per-byte Radix-3 packing: For ternary weights q ∈ {− 1, 0, +1}, ﬁve trits span
+35 = 243 ≤ 256 states and pack bijectively into one uint8 byte via u = ∑4
+j=0(qj + 1)3j, yielding
+1.6000 bpp payload density (within 0.015 bpp of log2 3) with zero roundtrip error.
+4. Deferred-reduction Split-K fused T riton kernels: To execute real 4-bit and 2-bit bit-packed lay-
+ers on GPU without materializing FP16 weight matrices, we author custom OpenAI Triton kernels
+(lean_4bit_deferred_splitk_kernel and lean_2bit_deferred_splitk_kernel; Algorithm 2 in Ap-
+pendix B) with fused qkvg_proj and gate_up_proj, uint8-quantized group scales/mins, int8-quantized
+outlier banks, Split-K group CTAs plus an outlier CTA, and L2 FP32 accumulation via tl.atomic_add.
+(As noted in Section 5.3, our live Triton daemon pairs these GPU kernels with CPU-pinned async DMA
+prefetching for ﬁve overﬂow layers and CPU BF16 embeddings to hold GPU VRAM under 8.00 GiB.)
+3 Controlled Theory Veriﬁcation and Audited Preregistration Ledger
+We ﬁrst verify the scaling behavior of the Priced-Quanta model in controlled synthetic environments ( m3–m9
+in our public research repository 1) and then audit all 18 preregistered blind predictions ( M10, M10B, M11).
+3.1 Synthetic Scaling, Model Selection, and Literature Reproductions
+• Linear memory scaling and algorithmic core invariance ( m4, m5, m6): Across synthetic multi-
+world key-value benchmarks (Weighted Rank-Metric Factorization / WRMF world sweeps and dual
+1Code, raw JSON logs, preregistrations, ﬁgure generators, and automated audit scripts: https://github.com/
+Mehardeep-Singh-GG/priced-quanta-research
+5
+
+
+--- Page 6 / 25 ---
+
+compression-vs-MDL description-length rulers), parametric memory scales linearly with stored fact count
+(R2 = 0.999992; dual-ruler Spearman ρ = 0.9874; composition additivity gap 2.51% ≤ 5%), whereas algo-
+rithmic core description length remains scale-invariant across world sizes ( γcore = −0.0024, 95% CI upper
+bound 0.0008 ≪ 0.20; cross-world transfer ratio 99.91%). Across nine decompiled symbolic RASP-style
+skills ( m6), algorithmic description length averages calg = 27.27 ± 3.70 bits/token (95% CI [24.91, 29.75];
+frozen prior constant 28.45 in m9).
+• Zipﬁan exponent recovery and greedy knapsack gap ( m7): Across synthetic Zipﬁan factual worlds
+with target exponents α ∈ { 0.3, 0.6, 1.0}, recovered excess-loss scaling exponents are γ = 0.359, 0.605,
+and 0.976 (all within the preregistered 20% relative tolerance band; we note explicitly that the narrow
+bootstrap 95% CIs [0.3587, 0.3590], [0.6049, 0.6051], and [0.9762, 0.9764] exclude the exact targets α,
+indicating small ﬁnite-size bias). Factual survival ROC-AUC averages 0.872, half-life asymmetry reaches
+6.58×, and eﬃciency-sorted greedy allocation matches exact DP within a 0.52% relative objective gap.
+• Small-sample scaling-law comparison ( m9; Figure 3(a)): On the n = 4 combined exponent points
+(α ∈ { 0.3, 0.6, 1.0} from m7 plus αest = 0.4158 from m8), we compare four scaling hypotheses for excess-
+loss exponent ˆγ: Model A ( Priced-Quanta, ˆγ = α, zero ﬁtted slope parameters, k = 1 residual variance
+parameter), Model B ( Chinchilla-style constant proxy , Hoﬀmann et al. , 2022, ˆγ = ¯γ, k = 2 ), Model C
+(Precision-only constant, ˆγ = 0.70, logged with k = 2), and Model D ( Frequency-only step cutoﬀ, ˆγ = 1.00,
+logged with k = 2 ). Model A achieves MAPE = 5.50%, R2 = 0.9825, and AIC = −25.49 (Akaike, 1974)
+versus Model B ( 37.69%, ∆AIC = 18.18), Model C ( 52.83%, ∆AIC = 18.96), and Model D ( 98.12%,
+∆AIC = 23.61). Small-sample statistical caveat: because n = 4 is very small, standard small-sample
+AICc (Burnham & Anderson , 2002) imposes a steep +12 penalty at k = 2 (n −k − 1 = 1 ) vs. +2 atk = 1
+(and becomes undeﬁned for k ≥ 3), and Models C/D have zero ﬁtted parameters (removing the k = 2
+penalty reduces ∆AIC by 2.0, leaving Model A still lower in residual SSE by > 57×: SS res = 0.00415 vs.
+≥ 0.237).
+• Baseline literature checks on Pythia-70M (m2, m8): On EleutherAI/pythia-70m (Biderman
+et al. , 2023), we match published perplexity within 1.23% (34.57 vs. 35.0). Evaluating the 110-fact
+RELATIONS_DB probe bank (cycled to N = 3,000 with perturbed hand-estimated frequencies; Section 4)
+yields a weak positive frequency–accuracy rank correlation (Spearman ρ = 0.1315, ρ2 ≈ 1.7%, nominal
+p = 4.79×10−13 under naive independence; see Section 7 on cycling). On N = 500 paired entity-scrambled
+in-context lookup probes, paired TOST ( Lakens, 2017) conﬁrms equivalence within an absolute ±5.0 pp
+margin ( 47.4% vs. 47.2%, ∆ = 0 .20 pp on seed 42, SE paired = 0.0180, pTOST = 0.00386; 3-seed mean
+baseline 49.6%, mean |∆| = 0.40 pp). We note transparently an internal inconsistency in the archived
+m2 JSON: the top-level summary records a −18.68% 4-bit RTN factual drop vs. 0.0% skill drop ( Jaiswal
+et al. , 2024), whereas the appended per-seed sub-runs show a +12.1% 4-bit ﬂuctuation (documented in
+our repository errata). Fitting the 110 hand-estimated entity frequencies in m8 yieldsαest = 0.4158 (95%
+CI [0.3657, 0.4551], R2 = 0.841), aligning with the empirical knapsack scaling exponent γ = 0.4063 (95%
+CI [0.2748, 0.5232]).
+3.2 Forensically Audited Preregistration Ledger (M10, M10B, M11)
+Frozen prior constants (calg = 28.45 bits/tok,κ = 1.66 bits/param,αest = 0.4158) were sealed under LOCK_v1
+prior to running 18 preregistered blind predictions across M10 (Pythia-70M), M10B (ﬁve models up to 410M),
+and M11 (SmolLM2-360M). Rather than reporting raw script pass counts uncritically, our code-level forensic
+audit (Appendix C, Table 7) uncovered both genuine misses and implementation shortcuts that must be
+separated honestly:
+1. T rue empirical hits within preregistered 95% PIs (7/12 valid empirical predictions; 8/12
+counting extrapolated P_LOCK_3): e.g., M10 γ = 0 .457 ∈ [0.32, 0.51] and survival ROC-AUC
+= 0.720 ∈ [0.68, 0.76]; M10B family-mean half-life ratio 2.92× ∈ [2.50, 7.50] (unweighted 5-model mean
+2.38×), discrete knapsack γ = 0.398 ∈ [0.30, 0.52], and cross-scale Pareto advantage 0.140 ∈ [0.01, 0.15];
+M11 core description-length fraction 0.211 ∈ [0.15, 0.22] (full-model ratio 0.314).
+6
+
+
+--- Page 7 / 25 ---
+
+2. Genuine empirical misses and script clamps corrected: (i) M10 / P_LOCK_5 : counterfactual MLP
+perturbation shifted skill by 6.0 pp vs. [0, 4] pp (logged as F-0007), and held-out loss MAPE reached
+12.22%; (ii) M10 / P_LOCK_3 : chance-corrected excess ratio was 0.98× (uncrossed on the 5-rung lad-
+der; raw bound > 1.54×, extrapolated 3.47×); (iii) M10B / P_M10B_3 : cross-family ROC-AUC averaged
+0.609 < [0.68, 0.78]; (iv) M11 / P_M11_1 : standalone skill delta was 0.0 pp (tokenizer ﬂoor; Section 4.1);
+(v) M11 / P_M11_2 : the original script clamped raw ∆loss = −1.041 nats/tok (better than predicted
+[−0.05, 0.20]!) to 0.048—we reject that clamp and report the true −1.041 as outside PI; and (vi) M11 /
+P_M11_4: raw RAG accuracy was 97.0% (1.155× FP16’s 84.0%, exceeding [0.90, 0.98]).
+3. Analytical/synthetic entries separated from real-LLM measurements: Four entries ( P_LOCK_4,
+P_M10B_2, P_M10B_6 = 2.31 GB formulaic MPS estimate, and P_M11_6 = 2.30× measured on a synthetic
+16-layer ReLU MLP rather than SmolLM2-360M) are explicitly tagged as analytical or synthetic in Table 7.
+4 Cross-Architecture Real-LLM Experiments (70M to 7.62B)
+All experiments in this section evaluate complete pretrained Hugging Face AutoModelForCausalLM check-
+points. To ensure exact methodological transparency, we state four exact properties of the evaluation suite
+directly from our codebase:
+• F actual cloze bank ( RELATIONS_DB): Consists of 110 unique entity–relation triples across 10 relation
+types (20 capitals plus 10 facts each across 9 relations) paired with hand-estimated integer frequency tiers
+(16,000–98,000, not queried directly from The Pile). Evaluations requesting N = 500 or N = 3,000 cycle
+through these 110 triples, while N = 100 per-seed runs draw all 10 facts from 9 relations (90 shared items
+across seeds) plus 10 of 20 capitals.
+• Idealized closed-domain BM25 index: The serialized 18,235-byte ( 17.81 KiB) BM25 store in-
+dexes 110 exact-template passages ( "{sub} is associated with {obj}. Specifically, {prompt}
+{obj}.") matching the probe bank. Retrieval-augmented cloze therefore isolates a compressed model’s in-
+context copying ﬁdelity from an idealized local index rather than open-domain Wikipedia retrieval (which
+requires multi-GB storage).
+• Procedural probe and BPE ﬁrst-token tokenizer audit: Procedural skill evaluation uses 3-way
+synthetic in-context key-value lookup ( "Map: k1->v1, k2->v2, k3->v3. Query: q ->" , 2-digit nu-
+meric candidates, 33.3% random chance) scored by the ﬁrst token of " " + candidate . Crucially, on
+BPE tokenizers that split digits from leading whitespace ( SmolLM2, Qwen2.5), the ﬁrst token is identical
+(" " ) across all three candidates, causing argmax to deterministically pick candidate 1 at chance ( 34.8%–
+40.0%) regardless of model weights or quantization! Only models whose tokenizers merge space+digits
+(Pythia-70M/160M, GPT-2) yield valid above-chance skill signals ( 56.5%–69.7%). We therefore retract all
+procedural-preservation claims on SmolLM2 and Qwen2.5 and explicitly ﬂag ﬂoor-saturated rows below.
+• Sequence loss diagnostic: The Seq. Loss column in Table 2 measures next-token cross-entropy over
+a single ﬁxed 45-word diagnostic paragraph, not full WikiText-2 perplexity.
+4.1 Cross-Family Asymmetric Survival Half-Life (70M to 410M)
+We evaluate progressive uniform RTN group quantization (FP16 → INT8 → INT4 → INT3 → INT2, gsz =
+128) across ﬁve pretrained models spanning three families— GPT-NeoX (Pythia-70M/160M/410M; Biderman
+et al. , 2023), GPT-2 (Radford et al. , 2019), and GQA SmolLM2-360M (Allal et al. , 2025)—over three seeds
+(42, 43, 44; 6,851.9 s total runtime; N = 500 factual and N = 250 procedural evaluations per seed). Note that
+Table 1 computes half-lives via raw 50% FP16 retention (with an extrapolation ﬂoor of 0.25bmin when a curve
+does not cross 50%), reports sample standard deviations ( s, ddof = 1 ) and exact small-sample Student- t
+95% CIs (df = 2,t0.975,2/
+√
+3 = 2.4841), and includes both transformer-only and full-model (mixed, including
+FP16 embeddings) ratios.
+Restricting strictly to the three checkpoints with cleanly above-chance procedural baselines ( Pythia-70M,
+GPT-2, Pythia-160M), transformer-bit half-life ratios span 1.20× to 5.30×, with every exact Student- t
+7
+
+
+--- Page 8 / 25 ---
+
+Table 1: Cross-family quantization survival asymmetry across ﬁve pretrained language models over N = 3
+seeds ( m10b_rigorous). Sample SDs ( ddof = 1 ) and exact Student- t 95% CIs ( df = 2 ) replace narrow
+bootstrap ranges. Asterisk ( ∗) denotes near-chance FP16 skill baseline ( 36.8% vs. 33.3% chance); dagger ( †)
+denotes a tokenizer-induced chance-ﬂoor artifact on SmolLM2-360M excluded from valid asymmetry conclu-
+sions.
+Model Params F act (16 →2) Skill (16 →2) T rans. Ratio 95% t-CI Mixed Ratio AUC
+Pythia-70M 70.4M 46.5% →13.5% 56.5% →35.7% (5.30 ± 1.24)× [2.22, 8.39] (1 .07 ± 0.02)× 0.500 ± .003
+GPT-2 124.4M 60.0% →17.5% 60.1% →32.3% (1.45 ± 0.11)× [1.19, 1.72] (1 .09 ± 0.02)× 0.605 ± .007
+Pythia-160M 162.3M 49.0% →16.5% 69.7% →31.2% (1.20 ± 0.02)× [1.16, 1.24] (1 .03 ± 0.00)× 0.621 ± .004
+Pythia-410M∗ 405.3M 64.0% →17.0% 36.8% →34.1% (2.74 ± 0.60)× [1.25, 4.23] (1 .30 ± 0.06)× 0.536 ± .002
+SmolLM2-360M† 361.8M 84.0% →12.5% 34.8% →34.8%† (6.04 ± 0.00)×† [6.02, 6.05]† (4.96 ± 0.00)×† 0.583 ± .003
+Pythia
+70M
+GPT-2
+124M
+Pythia
+160M
+Pythia
+410M*
+SmolLM2
+360M†
+0
+20
+40
+60
+80
+100
+120
+2-bit retention (% of FP16)
+29% 29%
+34%
+27%
+15%
+63%
+54%
+45%
+93%
+100%
+(a) 2-bit retention across 5 LLMs (N=3)
+50% raw retention
+Factual cloze (2-bit / FP16)
+Procedural skill (gray†: BPE floor)
+0 2 4 6 8 10
+Half-life ratio B fact
+1=2 =B skill
+1=2  (£)
+Pythia 70M
+GPT-2 124M
+Pythia 160M
+Pythia 410M*
+SmolLM2 360M†
+5.30x
+1.45x
+1.20x
+2.74x
+6.04x
+(b) Asymmetry ratio (exact t 95% CI)
+Symmetry null (1.0x)
+Figure 1: Cross-family quantization survival asymmetry across ﬁve pretrained language models (N = 3 seeds).
+(a) At 2-bit uniform quantization, factual cloze drops to 15%–34% of FP16 performance across all models,
+while above-chance procedural baselines ( Pythia-70M/160M, GPT-2) retain 45%–63%; SmolLM2-360M† (gray)
+is locked at the BPE chance ﬂoor and excluded from asymmetry claims. (b) Transformer-bit half-life ratios
+with exact Student-t 95% CIs (df = 2); all valid checkpoints exceed the 1.0× symmetry null.
+95% CI lying strictly above 1.0× (note that on Pythia-70M, seeds 42 and 44 reached the uncrossed 0.25bmin
+extrapolation ﬂoor, while Pythia-160M and GPT-2 crossed cleanly inside the ladder). Full-model mixed ratios
+(which dilute transformer savings with FP16 embeddings) remain modest at 1.03×–1.30×, highlighting why
+compressing embeddings becomes essential at 30B scale (Section 5.1). Note also that ROC-AUC values in
+Table 1 (0.500–0.621) are lower than M10’s 0.720 because M10 evaluated the 3-bit rung on the held-out T1
+tranche whereas m10b_rigorous averaged across cycled N = 500 probes.
+4.2 Backbone Byte-Parity 4-Bit/3-Bit Compression ( ∆ = 0.000%) and MSE Clipping Recovery
+We next evaluate 4-bit attention / 3-bit MLP compression ( gsz = 128; note that all models in Table 2 use 3-
+bit MLPs, whereas Section 4.3 uses 2-bit MLPs) under exact quantized-backbone bit parity ( ∆bits = 0.000%
+across 2D transformer weights; excluding FP16 embeddings/norms and the 17.81 KiB BM25 index). Both
+KAC and the byte-matched baseline receive identical BM25 retrieval prompts in the RAG Cloze column.
+By inspecting the allocator code, we explicitly document three protocol facts: (i) the baseline ( Prefix
+8
+
+
+--- Page 9 / 25 ---
+
+Table 2: Backbone byte-parity ( ∆ = 0.000%, 4-bit/3-bit) comparisons across Pythia-160M, SmolLM2-360M,
+and Qwen2.5-3B-Instruct. Backbone storage excludes FP16 embeddings and the 17.81 KiB BM25 store.
+On Qwen2.5-3B, GQA-KAC (+MSE clip) was run with search_scales=True while Prefix 4b/3b used
+search_scales=False (confounded; see text). Procedural skill is omitted on SmolLM2 and Qwen2.5 due to
+the BPE ﬁrst-token bug.
+Model (Seeds) Method Backbone Size Raw Cloze Skill Seq. Loss RAG Cloze
+Pythia-160M
+(MHA, N = 2)
+FP16 Base — 49.0% 72 .0% 4 .88 —
+Preﬁx 4b/3b Baseline 34.17 MiB 35.0% 66 .0% 7 .92 87.0%
+KAC 4b/3b 34.17 MiB 37.5% 69.0% 6.42 92.5%
+SmolLM2-360M
+(GQA, N = 2)
+FP16 Base — 84.0% n/a† 3.94 —
+Preﬁx 4b/3b Baseline 126.56 MiB 60.0% n/a† 5.76 96.0%
+KAC 4b/3b 126.56 MiB 68.0% n/a† 6.63 97.0%
+Qwen2.5-3B
+(GQA 16:2, N = 5)
+FP16 Base — 87.0% n/a† 4.15 —
+KAC 4b/3b (unclipped, N = 1) 1,074.09 MiB 11.0% n/a† 11.17 12.0%
+Preﬁx 4b/3b (unclipped) 1,074.09 MiB 62.4% n/a† 6.72 89.8% ± 1.8%
+GQA-KAC (+MSE clip) ∗ 1,074.09 MiB 20.2% n/a† 9.45 94.0% ± 0.0%
+Backbone bit totals: 286,654,464 b ( Pythia-160M), 1,061,683,200 b ( SmolLM2-360M), and 9,010,151,424 b ( Qwen2.5-3B, 3.247 bpp backbone
+/ 4.534 bpp full model ≈ 1.63 GiB incl. FP16 embeddings). ∗Confounds asymmetric allocation with search_scales=True. †Invalidated
+by BPE ﬁrst-token bug.
+4b/3b) sorts eligible tensor names lexicographically ( layers.0, layers.1, layers.10, ... ) and assigns
+4-bit sequentially until the exact bit budget matches KAC, making it a layer-preﬁx 4b/3b baseline rather than
+interleaved uniform quantization; (ii) on Pythia-160M, attention.dense (7.08M params) was left at 3-bit;
+and (iii) on Qwen2.5-3B-Instruct (Qwen Team, 2024; 16Q/2KV GQA, NVIDIA RTX 4060 Laptop 8.00 GiB
+GPU), both unclipped KAC and GQA-KAC assign the exact same 339.74M attention+KV parameters
+to 4-bit and 2.435B MLP parameters to 3-bit! The collapse ( 12.0% RAG cloze) versus recovery ( 94.0%)
+was driven by enabling FP32 MSE-optimal group clipping ( search_scales=True) on 3-bit SwiGLU
+MLPs—and because the 5-seed Prefix 4b/3b baseline ran with search_scales=False, the +4.2 pp gap on
+Qwen2.5-3B reﬂects the combined eﬀect of asymmetric allocation and MSE clipping rather than bit allocation
+alone.
+Three clear empirical takeaways emerge from Table 2 and Figure 2(a):
+1. Unconfounded gains at 160M and 360M: Under identical unclipped RTN settings, KAC beats the
+preﬁx baseline on Pythia-160M (+5.5 pp RAG cloze, +3.0 pp valid procedural skill, −1.50 nats sequence
+loss) and SmolLM2-360M (+8.0 pp raw cloze, +1.0 pp RAG cloze).
+2. Criticality of MSE scale clipping on 3-bit SwiGLU MLPs at 3B: Without clipping, 4b/3b KAC
+collapses to 12.0% RAG cloze ( 11.17 nats loss), whereas FP32 MSE clipping ( search_scales=True)
+restores 94.0% across all ﬁve seeds ( 1042–5042: 94, 94, 94, 94, 94) vs. 89.8% ± 1.8% (93, 89, 89, 89, 89; note
+an earlier standalone seed-1042 evaluation scored 94.0% for the preﬁx baseline, whereas the cached multi-
+seed seed-1042 run scored 93.0%). On the 5-seed multi-seed battery, the paired diﬀerence is +4.20 pp
+(SEM = 0 .80 pp, exact Student- t 95% CI [+1.98, +6.42] pp, paired dz = 2 .35, small-sample Hedges’
+gz = 1.88, unpaired Cliﬀ’s δ = 1.000; Cliﬀ, 1993, exact two-sided permutation p = 0.0625 and Wilcoxon
+W = 0.0, p = 0.0625; Wilcoxon, 1945—the theoretical 2/25 ﬂoor at N = 5 ). We emphasize two caveats:
+(a) 90 of 100 factual probes repeat across seeds (explaining the zero variance of GQA-KAC and preventing
+treatment as 500 independent draws), and (b) only GQA-KAC enabled search_scales=True.
+3. Mechanistic closed-book vs. retrieval trade-oﬀ: Because GQA compresses attention to 11% of
+Qwen2.5-3B parameters, GQA-KAC places 100% of MLPs at 3-bit while the preﬁx baseline keeps early-
+layer MLPs at 4-bit. Consequently, GQA-KAC trades lower closed-book raw cloze ( 20.2% vs. 62.4%)
+and higher 45-word sequence loss ( 9.45 vs. 6.72 nats) for 94.0% retrieval-grounded accuracy (surpassing
+closed-book FP16’s 87.0%).
+9
+
+
+--- Page 10 / 25 ---
+
+Pythia-160M
+(N=2)
+SmolLM2-360M
+(N=2)
+Qwen2.5-3B
+(N=5*)
+0
+20
+40
+60
+80
+100
+120
+140
+Retrieval-augmented cloze (%)
+Unclipped 3B KAC
+(12.0%)
+87.0%
+96.0% 89.8%92.5% 97.0% 94.0%
+(a) 4b/3b byte-parity RAG cloze
+3B KAC w/o MSE clip (12.0%)
+Prefix 4b/3b baseline + BM25
+KAC 4b/3b + BM25 (3B: +MSE clip)
+Uncal.
+RTN
+(3.92 GiB)
+8-seq AWQ†
++ Clip
+(3.93 GiB)
+48-seq WT2
++®-grid
+(4.34 GiB)
+0
+20
+40
+60
+80
+100
+120
+Factual cloze accuracy (%)
+12%
+10%
+72%
+32%
+88%
+37%
+(b) Qwen2.5-7B on 8 GiB RTX 4060
+GQA-KAC + BM25 (17.8 KiB)
+Raw closed-book cloze
+Figure 2: Backbone byte-parity 4-bit/3-bit evaluation and 8.00 GiB RTX 4060 7B scaling. (a) KAC improves
+retrieval cloze on Pythia-160M and SmolLM2-360M with identical unclipped settings; on Qwen2.5-3B (N = 5 ∗,
+90% shared probes), unclipped 3-bit MLPs collapse ( 12.0%, cross marker) and MSE group clipping restores
+94.0% (confounded against unclipped preﬁx baseline). (b) On Qwen2.5-7B-Instruct (3.84 GiB weights),
+48-sequence WikiText-2 A WQ calibration with per-layer α search lifts retrieval cloze from 12.0% to 88.0%
+(† Stage 2 overlaps 7/8 with evaluation probes; Stage 3 is leak-free).
+Table 3: Three-stage calibration ablation for 4-bit/2-bit GQA-KAC on Qwen/Qwen2.5-7B-Instruct on
+a physical 8.00 GiB RTX 4060 Laptop GPU ( 3.84 GiB packed weights). Stage 1 reports peak VRAM
+(max_memory_allocated); Stages 2–3 report steady-state post-calibration memory_allocated. Stage 2 over-
+laps 7/8 with evaluation probes ( †); Stage 3 uses 48 disjoint WikiText-2 train sequences and is our clean 7B
+benchmark. No uniform 4-bit 7B baseline was evaluated.
+Conﬁguration W eights VRAM (Metric) F ree Raw Cloze RAG Cloze
+FP16 Baseline 14.19 GiB Exceeds 8.00 GiB VRAM (OOM) — —
+Stage 1: Uncalibrated RTN GQA-KAC 3.84 GiB 3.92 GiB (peak) 4.08 GiB 10.0% 12.0%
+Stage 2: + 8-seq A WQ † & Clip ( 147.7 s) 3.84 GiB 3.93 GiB (alloc.) 4.07 GiB 32.0% 72.0%
+Stage 3: + 48-seq WT-2 & α-grid ( 1,020 s) 3.84 GiB 4.34 GiB (alloc.) 3.66 GiB 37.0% 88.0%
+4.3 Physical 8 GiB Consumer GPU Serving on Qwen2.5-7B-Instruct
+On a physical NVIDIA GeForce RTX 4060 Laptop GPU ( 7.996 GiB VRAM), loading FP16
+Qwen/Qwen2.5-7B-Instruct (7.62B params, 14.19 GiB) exceeds hardware capacity. Packing 822.1M at-
+tention parameters at 4-bit and 5.703B SwiGLU MLP parameters at 2-bit (GQA-KAC) compresses static
+weights (including FP16 embeddings and lm_head) to 3.8365 GiB (4.327 bpp; plus ≈ 2–3 MiB of FP16
+channel_scales in Stages 2–3 and the 17.81 KiB BM25 index, overhead fraction 4.43 × 10−6).
+Table 3 and Figure 2(b) establish that uncalibrated 2-bit MLPs at 7B collapse even with retrieval ( 12.0%
+RAG cloze), whereas layer-by-layer A WQ salience scaling and MSE clipping inside < 4.4 GiB VRAM yield
+dramatic recovery. Explicitly auditing calibration splits, Stage 2’s 8 calibration sentences overlapped 7/8
+with RELATIONS_DB facts; Stage 3 eliminates all overlap by calibrating strictly on 48 WikiText-2 train-
+ing sequences ( 3,072 tokens; Merity et al. , 2017), achieving 37.0% raw cloze and 88.0% retrieval cloze
+10
+
+
+--- Page 11 / 25 ---
+
+(+76.0 pp over Stage 1) at 4.34 GiB allocated VRAM ( 3.66 GiB free headroom; 1.11 tok/s unpack-on-the-ﬂy
+PyTorch decode). Across 84 calibrated SwiGLU projections, the gentler A WQ exponent α = 0.4 outper-
+formed α ∈ { 0.5, 0.6, 0.75} in 88.1% (74/84) of projections (mean relative error 0.3576 vs. 0.3614 at
+α = 0.5 and 0.3786 at α = 0.75), showing that 2-bit SwiGLU layers beneﬁt from softer channel rescaling
+than standard 4-bit A WQ defaults. (We omit procedural skill from Table 3 due to the BPE ﬁrst-token bug
+and note that standard 4-bit uniform A WQ/GPTQ also ﬁts in 8 GiB at ≈ 5.35 GiB and was not benchmarked
+head-to-head here.)
+5 Scaling to 30B Parameters: Anatomy, Hessian Error Reduction, and 8 GiB Triton
+Serving
+We next scale our analysis to meta-models/Muse-Glimmer-30B2 proﬁled and served on NVIDIA A100-SXM4-
+80GB hardware.
+5.1 52-Layer Spectral Anatomy and Stage-1 Memory Overﬂow
+Streaming all 1,436 real checkpoint tensors in 91.26 s ( 7.52 GiB / 7,696.1 MiB peak proﬁling VRAM; m14)
+establishes three structural properties:
+1. Extreme rank and kurtosis dichotomy across all 416 real text matrices (Figure 3(b)): Across
+all 52 layers ( 39 sliding RoPE θ = 500,000, 13 global NoPE), GQA k_proj ([256, 6,656]) has mean stable
+rank 28.0 ± 12.9 (10.35 in Layer 0) and attn_gate_proj averages 19.7 ± 5.6, whereas SwiGLU up_proj
+([19,968, 6,656]) averages 692.0±234.2 (511.8 in Layer 0)—a 25× rank separation. Meanwhile, o_proj and
+down_proj carry the heaviest weight tails (Layer 0 kurtoses 11.87 and 14.25; 52-layer means 5.22 ± 3.15
+and 5.01 ± 4.15), explaining why these two projections dominate outlier sensitivity.
+2. Boundary and vision overhead breaks 7B-style allocation: Untied 202,048-vocabulary FP16 em-
+beddings and lm_head alone consume 5.0099 GiB (5.0125 GiB including layer norms), and the BF16 vision
+tower adds 3.5797 GiB. Consequently, Stage-1 7B-style allocation (4b attention, 2b MLP, FP16 bound-
+aries/vision) requires 15.8488 GiB (12.269 GiB text-only), overﬂowing an 8.00 GiB budget by 7.85 GiB.
+3. Sliced perturbation proxy across 52 layers (Figure 4(a)): Running dithered group-128 quantiza-
+tion on sliced attention ( q_proj 4/32 heads, k_proj 1/2 heads) and sliced MLP sub-blocks across all
+52 layers under Frobenius tolerance τattn = 0.25 and capacity-scaled τfact = τattn(dk/dmlp)0.35 ≈ 0.0427
+yields mean proxy bit-widths ˜hFrob
+1/2 (attn) = 1 .97 ± 0.83 bits vs. ˜hFrob
+1/2 (MLP) = 6 .69 ± 0.73 bits (gap
++4.72 ± 1.10 bits, sample SDs, range [+2.5, +6.5]). Analytical caveat: we use distinct notation ˜hFrob
+1/2 (not
+Deﬁnition 3’s task-accuracy h1/2) because setting τfact 5.85× tighter than τattn embeds a log2(5.85) ≈
++2.55-bit architectural prior by construction rather than measuring 30B task accuracy.
+5.2 Greedy Lagrangian 6.08 GiB Blueprint and Block-Cholesky Output Error Reduction
+Running the eﬃciency-sorted greedy Lagrangian allocator (Proposition 1) over analytical tier distortion
+priors—using depth-weighted role importance ωi = Φ depth(ℓ,L ) Ωrole (base Ωrole from 0.85 for vision and
+1.00–1.65 for SwiGLU MLPs up to 2.10–4.50 for attention Q/O/KV projections) and tier distortion priors
+D(b) ∈ { 0.092, 0.074, 0.048, 0.021, 0.009} across ternary ( g = 256 , 128), 2-bit, 3-bit, and 4-bit options—
+packs all 29,776,626,688 parameters plus the 17.81 KiB BM25 store into 6,528,903,738 bytes ( 6.0805 GiB,
+1.7541 bpp, 9.12× compression vs. BF16) : 589 ternary matrices ( 26.195B params, 5 trits/byte), 26
+2-bit matrices ( 708.8M params), 104 4-bit GQA KV matrices ( 177.2M params across 52 layers), ternary
+embeddings ( 276.55 MiB), 2-bit lm_head (340.69 MiB), and FP16 text+vision norms ( 11.28 MiB).
+2Multimodal open-weight checkpoint ( 29,776,626,688 parameters across two BF16 .safetensors shards totaling
+55.4635 GiB): 52-layer text decoder ( d = 6 ,656, dmlp = 19 ,968, Hq = 32 , Hkv = 2 , dk = 128 , |V| = 202 ,048, 3:1 sliding
+RoPE / full NoPE attention) plus a 50-layer vision tower ( 1.92B parameters).
+11
+
+
+--- Page 12 / 25 ---
+
+Priced-
+Quanta
+Chinch.
+proxy
+Precision
+only
+Freq.
+only
+0
+20
+40
+60
+80
+100
+120
+Scaling-law MAPE (%, lower better)
+5.5%
+(AIC -25.5)
+37.7%
+(AIC -7.3)
+52.8%
+(AIC -6.5)
+98.1%
+(AIC -1.9)
+(a) Scaling-law comparison (M9, n=4)
+k
+(GQA)
+q a_g o v
+(GQA)
+down gate up
+0
+200
+400
+600
+800
+1000
+Mean stable rank (52 layers)
+(b) Real 30B rank & kurtosis (416 tensors)
+Stable rank (blue=Attn, orange=MLP)
+Mean weight kurtosis
+0
+1
+2
+3
+4
+5
+6
+7
+Mean weight kurtosis
+Figure 3: Controlled scaling comparison and full 52-layer Muse-Glimmer-30B spectral anatomy. (a)
+Scaling-law MAPE and AIC across n = 4 combined synthetic/empirical exponent points ( m9): Priced-
+Quanta achieves 5.5% MAPE vs. 37.7%–98.1% for competing proxies. (b) Mean stable rank ( ±1 SD) and
+mean weight kurtosis across all 52 real layers ( 416 matrices) of Muse-Glimmer-30B (m14; a_g denotes
+attn_gate_proj), showing low-rank GQA k_proj (28.0) vs. high-rank SwiGLU up_proj (692.0) and heavy-
+tailed o_proj/down_proj.
+To quantify Block-Cholesky Hessian compensation on real 30B weights ( m15), we evaluated eight real projec-
+tions from Layers 0, 2, 4, 7 of Muse-Glimmer-30B on NVIDIA A100 using 256 random calibration token IDs,
+measuring in-sample calibration output activation relative L2 error ∥(W − ˆW )X ⊤∥F/∥W X⊤∥F
+(Table 4, Figure 4(b)). Seven of eight matrices were evaluated on 1,024-row slices ( Eval. Shape in Ta-
+ble 4) for speed; L0 k_proj was evaluated at full [256, 6,656] height. Comparing Stage-1 RTN against H-
+KACv2 (Block-Cholesky + 0.35%–0.50% CSR salient columns + 0.35/0.65 closed-form output-scale blend;
+gsz ∈ { 128, 256}) reduces the macro-mean output error from 0.4428 to 0.2347—a 47.0% reduction in
+macro-mean error (36.9% unweighted mean of per-tensor reductions), reaching −54.86% on 1.585-bit L2
+mlp.down_proj (0.7361 → 0.3323). Note that Table 4 measures the combined eﬀect of Hessian compensation,
+CSR outliers (adding +0.15–0.24 bpp), and output-scale blending on in-sample calibration tokens; isolating
+each sub-component on held-out natural language activations remains important future work.
+Diagnostic note on the excluded 8-layer M16 calibration ladder. An exploratory 8-layer subspace
+calibration ladder ( m16) was also executed in our repository (recording subspace logit KL reductions from
+0.402 to 0.050 nats across ﬁve rungs). However, our forensic audit revealed that Rungs 2–4 added unaccounted
+full-precision truncated SVD residual factors ( LowRankOutlierAbsorber, ranks 48, 160, and 320—which
+exceeds the 256-row height of sliced k_proj/v_proj, rendering them lossless FP32), evaluated random
+overlapping integer token IDs, and modiﬁed the residual/SwiGLU forward pass. In keeping with strict
+TMLR claim–evidence rigor, we exclude M16 KL reductions from our claims and preserve the raw JSON
+strictly as an archived diagnostic.
+5.3 Reconciling the Three 30B Artifacts and 8 GiB Edge Serving
+Because building a live 52-layer GPU inference engine under an 8.00 GiB VRAM wall required practical
+kernel compromises relative to our theoretical 6.08 GiB ternary blueprint, Table 5 explicitly reconciles all
+three 30B artifacts produced in this study, and Table 6 / Figure 5 summarize veriﬁed memory footprints
+across 3B, 7B, and 30B deployments.
+12
+
+
+--- Page 13 / 25 ---
+
+Table 4: In-sample calibration output activation relative L2 error ∥(W − ˆW )X ⊤∥F/∥W X⊤∥F across eight
+real Muse-Glimmer-30B projections on A100 ( m15, 256 random token IDs). Seven projections are evalu-
+ated on 1,024-row slices; H-KACv2 combines Block-Cholesky compensation, 0.35%–0.50% CSR outliers, and
+0.35/0.65 output-scale blending.
+Layer / T ensor Role F ull Shape Eval. Shape Tier (bits) R TN Err. H-KACv2 Red. Eﬀ. bpp
+L0 k_proj GQA KV 256 × 6656 256 × 6656 4.000 0.0326 0.0308 −5.43% 4 .245
+L0 q_proj Attn Q 4096 × 6656 1024 × 6656 3 .000 0.0888 0.0793 −10.74% 3 .198
+L0 gate_proj SwiGLU 19968 × 6656 1024 × 6656 2 .000 0.2597 0.1676 −35.45% 2 .198
+L2 down_proj SwiGLU 6656 × 19968 1024 × 19968 1 .585 0.7361 0.3323 −54.86% 1 .758
+L4 down_proj SwiGLU 6656 × 19968 1024 × 19968 1 .585 0.7342 0.3521 −52.04% 1 .758
+L4 o_proj Attn Out 6656 × 4096 1024 × 4096 2 .000 0.4807 0.2682 −44.21% 2 .199
+L7 up_proj SwiGLU 19968 × 6656 1024 × 6656 1 .585 0.7229 0.3816 −47.20% 1 .736
+L7 down_proj SwiGLU 6656 × 19968 1024 × 19968 1 .585 0.4878 0.2658 −45.50% 1 .821
+Macro Mean — — — — 0.4428 0 .2347 −47.00%∗ —
+∗Ratio of macro means (0.4428 − 0.2347)/0.4428 = 47.00%; unweighted mean of the eight per-tensor percentage reductions is 36.93%.
+Outlier ratios: 0.35% (g = 128 ) except L2/L4/L7 down_proj at 0.50% (g = 128 –256).
+0 20 40
+Decoder layer index (0..51; dotted = NoPE)
+0
+2
+4
+6
+8
+Frobenius proxy bit-width
+(a) 52-layer 30B perturbation proxy
+Proxy gap (+4.72 b)
+MLP ~hFrob
+1=2  (6.69 b)
+Attn ~hFrob
+1=2  (1.97 b)
+0.0 0.2 0.4 0.6 0.8
+Output act. rel. L2 err. k(W ¡ dW)X > kF=kWX > kF
+L0 k (4b)
+L0 q (3b)
+L0 gate (2b)
+L2 down (1.58b)
+L4 down (1.58b)
+L4 o (2b)
+L7 up (1.58b)
+L7 down (1.58b)
+¡5.4%
+¡10.7%
+¡35.5%
+¡54.9%
+¡52.0%
+¡44.2%
+¡47.2%
+¡45.5%
+(b) Real 30B output err. (¡47.0% mean)
+Stage-1 RTN
+H-KACv2 (+CSR)
+Figure 4: Real Muse-Glimmer-30B 52-layer perturbation proxy and Block-Cholesky output-error reduction
+on A100. (a) Sliced Frobenius perturbation proxy across all 52 real layers (dotted lines mark the 13 full-
+attention NoPE layers; +4.72 bits mean gap includes the +2.55-bit tolerance-scaling prior). (b) In-sample
+calibration output activation relative L2 error across eight real sliced 30B projections ( m15), showing a 47.0%
+reduction in macro-mean error.
+Three systems ﬁndings and caveats merit emphasis:
+• Component microbenchmarks ( m18): Under the 8.00 GiB CUDA enforcer, sequential BF16
+(1.066 GiB/layer amortized over 52 layers; 0.901 GiB per decoder layer) and Stage-1 4-bit ( 0.305 GiB/layer)
+ramps crash at Layer 8 and Layer 26 (note the Layer 26 crash inherited 1.373 GiB residual CUDA cache
+from the preceding FP16 test). The 20.0 MiB StaticTileWorkspace (1 allocation, 594 reuses) executes
+tiled unpacking on real Layer 0 MLP dimensions with 0.000 MiB transient spike. We note two honest
+audit corrections in m18: its QuantizedKVCache test instantiated a synthetic 8-head KV conﬁguration
+(247.0 MiB 4-bit vs. 832.0 MiB FP16 at 4,096 tokens—whereas Muse-Glimmer-30B’s true 2-head FP16
+13
+
+
+--- Page 14 / 25 ---
+
+Table 5: Explicit reconciliation of the three distinct Muse-Glimmer-30B artifacts in our study, separating
+the 6.08 GiB ternary design plan ( M15/M18) from the real 52-layer 4-shard text export and the live Split-K
+fused Triton GPU daemon.
+Dimension Blueprint / M18 Enforcer
+(6.08 GiB)
+4-Shard Export ( 8.57 GiB disk) Live Split-K T riton Daemon
+(7.29 GiB GPU)
+Params
+covered
+29.78B (52L text + 50L vision) 27.85B (52L text-only; vision
+dropped)
+27.85B (loads 4-shard text export)
+Bit allocation
+& packing
+Greedy Lagrangian: 589 × 1.585b
+ternary (5-trit/B), 26 × 2b, 104 × 4b
+KV; Hessian
+A WQ 4b all attn + 2b all MLP
+(g = 256 ) + FP16 scales/mins +
+FP16 outlier cols (no
+ternary/Hessian)
+Re-quantizes shard scales/mins to
+uint8 and outlier banks to int8;
+fuses qkvg and gate_up
+Execution
+residency
+Simulated 6.08 GiB buﬀer + real L0
+tiled MLP ( 20 MiB, 0.00 MiB spike)
+Phase 2 ran unpacked BF16 in
+51.97 GiB A100 VRAM
+(11.0–11.7 tok/s)
+47/52 layers + lm_head on GPU; 5
+layers + 2.51 GiB BF16
+embeddings on CPU (async PCIe
+DMA)
+KV cache Synthetic 8-head 4b Group-64
+(247 MiB @ 4,096 tok; real 2-head
+FP16 = 208 MiB)
+Dynamic BF16 BF16 capped at 384 tokens
+(19.5 MiB)
+Veriﬁed
+memory
+6.87 GiB CUDA reserved ( 6.35 GiB
+alloc., 1.33 GiB host RSS)
+8.57 GiB disk shards ( 2,717 tensors);
+51.97 GiB live BF16 VRAM
+7.27 GiB persist / 7.29 GiB peak
+PyTorch; 7.92 GiB ( 8,108 MiB)
+nvidia-smi + ≈ 3.26 GiB CPU RAM
+Evaluation Single-layer tiled MLP
+microbenchmark ( 6.44 ms) + OOM
+falsiﬁcation (L8/L26)
+6 qualitative prompts (4/6
+overlapped calibration; Prompt 5–6
+unseen)
+Unseen smoke test ( "What is 12 *
+12?", 32 tok in 3.556 s, 9.0 tok/s)
+Table 6: Reconciled physical memory footprints across consumer GPU ( 8.00 GiB RTX 4060 Laptop) and
+52-layer Muse-Glimmer-30B runs, explicitly separating packed disk weights, fake-quantized BF16 VRAM,
+nvidia-smi total GPU memory, and host CPU oﬄoad.
+Deployment / Model Hardware Packed GPU Peak (Metric) Host RAM Speed (tok/s)
+Qwen2.5-3B GQA-KAC RTX 4060 (8 GiB) 1.63 GiB† 6.22 GiB (BF16 fake-q) — 13.8
+Qwen2.5-7B A WQ-GQA-KAC RTX 4060 (8 GiB) 3.84 GiB 4.34 GiB (alloc.) — 1.11
+Muse-Glimmer-30B PQv2 (M18) A100 (8 GiB wall) 6.08 GiB 6.87 GiB (CUDA res.) 1.33 GiB —∗
+Muse-Glimmer-30B 52L Triton A100 (8 GiB cap) 8.57 GiB 7.29 / 7.92 GiB smi ≈ 3.26 GiB 9.0
+Muse-Glimmer-30B 52L 4-Shard A100 (80 GiB) 8.57 GiB 51.97 GiB (BF16) — 11.0–11.7
+†Full-model Qwen2.5-3B packed estimate ( 1.05 GiB quantized backbone + FP16 embeddings/head); benchmark executed in-place BF16
+fake quantization ( 6.22 GiB peak VRAM, 13.84 tok/s). ∗M18 measures single-layer tiled MLP microbenchmarks ( 6.44 ms/step); full
+52-layer end-to-end throughput (tok/s) is reported in the bottom two rows.
+KV cache is only 208.0 MiB!) and measured relative attention error 0.01568 at slen = 65 tokens where
+64/65 tokens remained in exact FP16 (only 1 evicted token quantized).
+• Live 52-layer Split-K fused T riton GPU execution and rooﬂine context: Loading all four real
+bit-packed shards ( 8.5712 GiB, 2,717 tensors, packed in 15.40 s), our deferred-reduction Split-K Triton
+daemon executes all 52 real layers at 7.2688 GiB persistent / 7.2944 GiB peak PyT orch GPU
+allocation (8,108 MiB = 7.918 GiB total in nvidia-smi, leaving 84 MiB GPU margin) and 9.0 tok/s
+(32 tokens in 3.556 s on the unseen prompt "What is 12 * 12?" ). Because ﬁve overﬂow layers ( L8, L17,
+L26, L35, L44 , ≈ 0.75 GiB) and unpacked BF16 embeddings ( 2.51 GiB) reside in pinned CPU RAM,
+total combined GPU+CPU memory exceeds 10.5 GiB (meaning this daemon targets an 8 GiB discrete
+GPU paired with ≥ 16 GiB system RAM, not an 8 GiB uniﬁed-memory laptop). From a hardware
+rooﬂine perspective, streaming 7.27 GiB per token at 9.0 tok/s achieves ≈ 65.4 GiB/s ( 70.3 GB/s, ≈ 3.4%
+of A100’s 2,039 GB/s HBM2e peak), bottlenecked by FP32 tl.atomic_add contention, non-Tensor-Core
+scalar accumulation, and 5-layer PCIe DMA stalls.
+• Calibration overlap disclosure on 4-shard qualitative transcripts: In the unconstrained 51.97 GiB
+BF16-reconstructed Phase 2 run ( 11.0–11.7 tok/s), four of six qualitative prompts (Prompts 1–4) over-
+lapped verbatim with the A WQ calibration batch; Appendix D (Table 8) explicitly ﬂags every in-
+calibration versus unseen transcript (Prompt 5 train-speed math and the Triton daemon’s unseen "What
+is 12 * 12?" test, including its verbatim trailing repetition).
+14
+
+
+--- Page 15 / 25 ---
+
+10 20 30 40 50
+Loaded Muse-Glimmer-30B layer (1..52)
+0
+2
+4
+6
+8
+10
+GPU memory (GiB)
+(a) M18 52-layer GPU memory wall
+BF16 ramp (OOM L8)
+Stage-1 4b ramp (OOM L26)
+M18 PQv2 CUDA res. (6.87 GiB)
+8.00 GiB GPU ceiling
+Qwen-7B
+RTX 4060
+(alloc.)
+30B M18
+PQv2
+(CUDA)
+30B Triton
+52L Live
+(GPU*)
+30B 4-Sh.
+Disk Only
+(52G run)
+0
+2
+4
+6
+8
+10
+12
+GPU / disk footprint (GiB)
+4.34 GiB
+6.87 GiB
+7.29 alloc
+(7.92 smi)
+8.57 disk
+(52G run)
+(b) Reconciled 7B & 30B footprints
+8.00 GiB GPU ceiling
+Weights / persistent GPU
+Runtime / KV / CUDA ctx.
+Figure 5: Physical 8.00 GiB GPU memory-wall veriﬁcation across 7B and 30B deployments. (a) Under
+the M18 8.00 GiB enforcer, sequential BF16 and Stage-1 4-bit ramps trigger OOM at Layer 8 and Layer
+26, whereas Priced-Quanta v2 holds ﬂat at 6.87 GiB CUDA reserved memory across all 52 layers. (b)
+Reconciled footprints across Qwen2.5-7B (RTX 4060) and all three 30B conﬁgurations, explicitly noting
+both 7.29 GiB PyTorch allocated and 7.92 GiB nvidia-smi GPU memory for the live Split-K Triton daemon
+(∗plus ≈ 3.26 GiB host CPU RAM oﬄoad) and 8.57 GiB disk vs. 51.97 GiB BF16 execution for the 4-shard
+exporter.
+6 Related Work
+Post-training quantization, outlier protection, and mixed-precision allocation. Uniform PTQ
+methods have pushed LLM compression down to 2–4 bits: LLM.int8() ( Dettmers et al. , 2022) and
+SmoothQuant ( Xiao et al. , 2023) mitigate 8-bit activation outliers; GPTQ ( Frantar et al. , 2023) applies
+block-Cholesky inverse-Hessian updates; A WQ (Lin et al. , 2024) rescales salient input channels; HQQ ( Badri
+& Shaji , 2023) uses calibration-free half-quadratic optimization; OmniQuant ( Shao et al. , 2024) and Au-
+toRound ( Cheng et al. , 2024) optimize clipping and rounding via gradient descent; and QuIP/QuIP# ( Chee
+et al. , 2023; Tseng et al. , 2024), QuaRot ( Ashkboos et al. , 2024), SpinQuant ( Liu et al. , 2025), and AQLM
+(Egiazarian et al. , 2024) use orthogonal/Hadamard rotations and vector codebooks. Closer to our mixed-
+precision formulation, HA WQ and HA WQ-V2 (Dong et al. , 2019; 2020) allocate layer bit-widths via Hessian
+trace spectra; SpQR ( Dettmers et al. , 2024), SqueezeLLM ( Kim et al. , 2024), OWQ ( Lee et al. , 2024),
+PB-LLM ( Shang et al. , 2024), and BiLLM ( Huang et al. , 2024) combine ultra-low-bit weights with sparse
+high-precision salient columns; practical edge ecosystems such as llama.cpp GGUF K-Quants/imatrix and
+ExLlamaV2 heuristically up-quantize attention v_proj/o_proj and MLP down_proj; and in TMLR, Genzel
+et al. (2025) introduce ACIP for continuous any-size compression via SVD reparameterization. Comple-
+mentary to weight-magnitude-only or heuristic mixed precision, Project LEAN couples cognitive module
+allocation (attention routing vs. MLP memory) directly with externalized retrieval.
+T ernary networks, interpretability , and semi-parametric retrieval. BitNet b1.58 ( Ma et al. , 2024)
+trains ternary networks from scratch, whereas our 5-trit-per-byte packing targets post-training checkpoints.
+Our functional decomposition draws on mechanistic evidence that MLPs behave largely as key-value mem-
+ories ( Geva et al. , 2021; Meng et al. , 2022)—tempered by Hase et al. (2023), who show localization does
+not guarantee clean editability (consistent with our logged failure F-0007)—while attention heads execute
+15
+
+
+--- Page 16 / 25 ---
+
+induction and sink routing ( Olsson et al. , 2022; Xiao et al. , 2024). Our oﬄoading connects semi-parametric
+architectures—REALM (Guu et al. , 2020), RAG ( Lewis et al. , 2020), RETRO ( Borgeaud et al. , 2022), BM25
+(Robertson & Zaragoza , 2009)—with studies showing compression erodes long-tail facts disproportionately
+(Kandpal et al. , 2023; Jaiswal et al. , 2024).
+KV-cache quantization and low-bit GPU serving kernels. Low-bit KV compression has been ad-
+vanced by KIVI ( Liu et al. , 2024) and KVQuant ( Hooper et al. , 2024), while high-throughput sub-4-bit
+GPU serving relies on specialized kernels such as Marlin ( Frantar et al. , 2025), LUT-GEMM ( Park et al. ,
+2024), Ladder/BitBLAS ( Wang et al. , 2024), and QServe ( Lin et al. , 2025), alongside serving runtimes like
+FlashAttention (Dao et al. , 2022), vLLM ( Kwon et al., 2023), and FlexGen ( Sheng et al. , 2023). Our deferred-
+reduction Split-K Triton kernels demonstrate an accessible pure-Triton path for mixed 4b/2b + int8-outlier
+serving beneath an 8.00 GiB discrete GPU cap, though reaching Marlin/Tensor-Core bandwidth utilization
+and hardware-native radix-3 ternary GEMMs remains open engineering.
+7 Limitations and Future Work
+We summarize seven concrete limitations to bound our claims accurately:
+1. T okenizer-locked procedural probes and toy probe scale: The ﬁrst-token scoring bug in our proce-
+dural lookup script invalidated skill measurements on SmolLM2 and Qwen2.5. Additionally, RELATIONS_DB
+comprises 110 unique triples with hand-estimated frequencies (cycled for larger N , with 90% overlap across
+5 seeds on 3B), and the 17.81 KiB BM25 index covers only those exact-template facts—not Wikipedia-
+scale open-domain retrieval, which requires gigabytes of disk/RAM and nontrivial retrieval recall.
+2. Confounded 3B clipping and missing strong PTQ baselines: On Qwen2.5-3B, MSE group clipping
+(search_scales=True) was enabled for GQA-KAC but withheld from the lexicographical-preﬁx baseline;
+on Qwen2.5-7B, no uniform 4-bit A WQ or GPTQ baseline was benchmarked head-to-head; and on 30B,
+no full 52-layer quantitative quality evaluation (WikiText-2 perplexity, MMLU, GSM8K, or HumanEval)
+was run against storage-matched QuIP#, AQLM, or GGUF IQ2/IQ3 checkpoints.
+3. Closed-book degradation trade-oﬀ: Compressing MLPs aggressively lowers closed-book factual recall
+(62.4% → 20.2%) and raises unaugmented sequence loss ( 6.72 → 9.45 nats on Qwen2.5-3B). Project
+LEAN is strictly suited to semi-parametric workﬂows where static facts live in an external store.
+4. 30B runtime gap between blueprint and live daemon: Our live 52-layer Split-K Triton engine
+operates at 4b/2b (not radix-3 ternary), achieves 7.92 GiB nvidia-smi GPU VRAM by oﬄoading ≈
+3.26 GiB (BF16 embeddings + 5 streamed layers) to host CPU RAM with a 384-token BF16 KV cache cap,
+and sustains 9.0 tok/s ( ≈ 3.4% A100 HBM2e rooﬂine). Bridging the gap from this 8 GiB-VRAM + CPU-
+RAM prototype to a self-contained 8 GiB uniﬁed-memory laptop runtime requires native Metal/Tensor-
+Core radix-3 kernels and quantized embeddings on GPU.
+5. Calibration–evaluation overlaps in intermediate artifacts: Stage 2 of our 7B sweep (7/8 sentences)
+and Phase 2 of our 30B 4-shard export (4/6 prompts) overlapped with evaluation items; only Stage 3
+of 7B (48 WikiText-2 sequences), Prompt 5 of the 30B export, and the Triton daemon’s smoke test are
+leak-free.
+6. In-sample sliced Hessian proﬁling and excluded M16 diagnostic: Table 4 evaluated 1,024-row
+slices on 7/8 matrices using 256 random token IDs in-sample without isolating CSR outliers from Block-
+Cholesky updates, and the exploratory M16 ladder was excluded due to unaccounted FP32 SVD factors.
+7. Statistical power at N = 3 and N = 5: Small seed counts limit two-sided nonparametric permutation
+tests (p ≥ 0.0625 at N = 5 ) and widen exact Student- t intervals at N = 3 ; future evaluations should
+expand both probe diversity and independent seed count ( N ≥ 10).
+16
+
+
+--- Page 17 / 25 ---
+
+8 Conclusion
+We investigated asymmetric post-training precision allocation paired with externalized retrieval ( Project
+LEAN / Priced-Quanta) across pretrained transformers from 70M to 29.78B parameters. Theoretically, we
+established corrected spectral subspace stability and argmax routing margin bounds alongside a ﬁrst-order
+linearized MLP associative noise characterization and an MCKP greedy optimality guarantee. Empiri-
+cally, we conﬁrmed systematic factual-vs-procedural half-life asymmetry ( 1.20×–5.30×) on checkpoints with
+valid above-chance procedural baselines, demonstrated unconfounded 4b/3b backbone byte-parity gains on
+Pythia-160M and SmolLM2-360M, revealed the necessity of MSE group clipping and gentler A WQ channel
+scaling (α = 0.4 in 88.1% of projections) for 2–3-bit SwiGLU MLPs on Qwen2.5-3B and physical 8.00 GiB
+RTX 4060 Qwen2.5-7B serving (3.84 GiB weights, 88.0% leak-free WikiText-2 calibrated retrieval cloze), and
+scaled the pipeline to real 52-layer Muse-Glimmer-30B (29.78B parameters) via spectral proﬁling, Block-
+Cholesky Hessian compensation ( −47.0% macro calibration output error), and live Split-K fused Triton GPU
+serving under an 8.00 GiB VRAM wall ( 7.29 GiB PyTorch / 7.92 GiB nvidia-smi + 3.26 GiB host RAM,
+9.0 tok/s). By pairing constructive systems engineering with a full forensic audit of every methodological
+confound and negative result, we provide a transparent foundation for future semi-parametric low-bit edge
+LLM research.
+Broader Impact Statement
+Enabling 7B–30B open-weight language models to execute within consumer 8.00 GiB GPU memory envelopes
+lowers computational and ﬁnancial barriers for independent researchers, students, and privacy-sensitive local
+applications where cloud APIs are cost-prohibitive or impermissible. Decoupling static factual memory into
+an inspectable local retrieval store also enables transparent, zero-retraining knowledge updates. Conversely,
+broader local oﬄine availability reduces centralized API-level safety oversight, creating dual-use misuse risks
+if deployed without safeguards. Furthermore, we did not empirically evaluate safety alignment or
+refusal behavior after sub-4-bit quantization ; prior work indicates aggressive low-bit compression can
+degrade alignment guardrails. Deployers must therefore conduct post-quantization safety auditing and curate
+external retrieval stores carefully to mitigate both alignment drift and retrieval-injection attacks.
+References
+Joshua Ainslie, James Lee-Thorp, Michiel de Jong, Yury Zemlyanskiy, Federico Lebrón, and Sumit Sanghai.
+GQA: Training generalized multi-query transformer models from multi-head checkpoints. In Proceedings
+of the Conference on Empirical Methods in Natural Language Processing (EMNLP) , pp. 4895–4901, 2023.
+Hirotugu Akaike. A new look at the statistical model identiﬁcation. IEEE Transactions on Automatic
+Control, 19(6):716–723, 1974.
+Loubna Ben Allal, Anton Lozhkov, Elie Bakouch, Gabriel Martín Blázquez, Guilherme Penedo, Lewis Tun-
+stall, Andrés Maraﬁoti, Hynek Kydlíček, Agustín Piqueres Lajarín, Vaibhav Srivastav, Joshua Lochner,
+Caleb Fahlgren, Xuan-Son Nguyen, Clémentine Fourrier, Ben Burtenshaw, Hugo Larcher, Haojun Zhao,
+Cyril Zakka, Mathieu Morlon, Colin Raﬀel, Leandro von Werra, and Thomas Wolf. SmolLM2: When
+smol goes big—data-centric training of a small language model. arXiv preprint arXiv:2502.02737 , 2025.
+Saleh Ashkboos, Amirkeivan Mohtashami, Maximilian L Croci, Bo Li, Pashmina Cameron, Martin Jaggi,
+Dan Alistarh, Torsten Hoeﬂer, and James Hensman. QuaRot: Outlier-free 4-bit inference in rotated LLMs.
+In Advances in Neural Information Processing Systems (NeurIPS) , volume 37, pp. 100213–100240, 2024.
+Hicham Badri and Appu Shaji. Half-quadratic quantization of large machine learning models. Mobius Labs
+Technical Report, 2023.
+Stella Biderman, Hailey Schoelkopf, Quentin Gregory Anthony, Herbie Bradley, Kyle O’Brien, Eric Hallahan,
+Mohammad Aﬂah Khan, Shivanshu Purohit, USVSN Sai Prashanth, Edward Raﬀ, A viya Skowron, Lintang
+Sutawika, and Oskar van der Wal. Pythia: A suite for analyzing large language models across training
+and scaling. In International Conference on Machine Learning (ICML) , pp. 2397–2430, 2023.
+17
+
+
+--- Page 18 / 25 ---
+
+Sebastian Borgeaud, Arthur Mensch, Jordan Hoﬀmann, Trevor Cai, Eliza Rutherford, Katie Millican, George
+van den Driessche, Jean-Baptiste Lespiau, Bogdan Damoc, Aidan Clark, et al. Improving language models
+by retrieving from trillions of tokens. In International Conference on Machine Learning (ICML) , pp. 2206–
+2240, 2022.
+Kenneth P Burnham and David R Anderson. Model Selection and Multimodel Inference: A Practical
+Information-Theoretic Approach. Springer, 2nd edition, 2002.
+Jerry Chee, Yaohui Cai, Volodymyr Kuleshov, and Christopher De Sa. QuIP: 2-bit quantization of large
+language models with guarantees. In Advances in Neural Information Processing Systems (NeurIPS) ,
+volume 36, pp. 4396–4429, 2023.
+Wenhua Cheng, Weiwei Zhang, Haihao Shen, Yiyang Cai, Xin He, Kaokao Lv, and Yi Liu. Optimize weight
+rounding via signed gradient descent for the quantization of LLMs. In Findings of the Association for
+Computational Linguistics: EMNLP , pp. 11332–11350, 2024.
+Norman Cliﬀ. Dominance statistics: Ordinal analyses to answer ordinal questions. Psychological Bulletin ,
+114(3):494–509, 1993.
+Tri Dao, Daniel Y Fu, Stefano Ermon, Atri Rudra, and Christopher Ré. FlashAttention: Fast and memory-
+eﬃcient exact attention with IO-awareness. In Advances in Neural Information Processing Systems
+(NeurIPS), volume 35, pp. 16344–16359, 2022.
+Tim Dettmers, Mike Lewis, Younes Belkada, and Luke Zettlemoyer. LLM.int8(): 8-bit matrix multiplication
+for transformers at scale. In Advances in Neural Information Processing Systems (NeurIPS) , volume 35,
+pp. 30318–30332, 2022.
+Tim Dettmers, Ruslan Svirschevski, Vage Egiazarian, Denis Kuzmin, Elias Frantar, Saleh Ashkboos, Alexan-
+der Borzunov, Torsten Hoeﬂer, and Dan Alistarh. SpQR: A sparse-quantized representation for near-
+lossless LLM weight compression. In International Conference on Learning Representations (ICLR) , 2024.
+Zhen Dong, Zhewei Yao, Amir Gholami, Michael W Mahoney, and Kurt Keutzer. HA WQ: Hessian aware
+quantization of neural networks with mixed-precision. In Proceedings of the IEEE/CVF International
+Conference on Computer Vision (ICCV) , pp. 293–302, 2019.
+Zhen Dong, Zhewei Yao, Daiyaan Arfeen, Amir Gholami, Michael W Mahoney, and Kurt Keutzer. HA WQ-
+V2: Hessian aware trace-weighted quantization of neural networks. In Advances in Neural Information
+Processing Systems (NeurIPS) , volume 33, pp. 18518–18529, 2020.
+Vage Egiazarian, Andrei Panferov, Denis Kuzmin, Elias Frantar, Artem Babenko, and Dan Alistarh. Extreme
+compression of large language models via additive quantization. In International Conference on Machine
+Learning (ICML), pp. 12284–12303, 2024.
+Nelson Elhage, Tristan Hume, Catherine Olsson, Nicholas Schiefer, Tom Henighan, Shauna Kravec, Zac
+Hatﬁeld-Dodds, Robert Lasenby, Dawn Drain, Carol Chen, Roger Grosse, Sam McCandlish, Jared Kaplan,
+Dario Amodei, Martin Wattenberg, and Christopher Olah. Toy models of superposition. Transformer
+Circuits Thread, 2022.
+Elias Frantar, Saleh Ashkboos, Torsten Hoeﬂer, and Dan Alistarh. GPTQ: Accurate post-training quanti-
+zation for generative pre-trained transformers. In International Conference on Learning Representations
+(ICLR), 2023.
+Elias Frantar, Roberto L Castro, Jiale Chen, Torsten Hoeﬂer, and Dan Alistarh. MARLIN: Mixed-precision
+auto-regressive parallel inference on large language models. In Proceedings of the 30th ACM SIGPLAN
+Annual Symposium on Principles and Practice of Parallel Programming (PPoPP) , pp. 239–251, 2025.
+Martin Genzel, Patrick Putzky, Pengfei Zhao, Sebastian Schulze, Mattes Mollenhauer, Robert Seidel, Stefan
+Dietzel, and Thomas Wollmann. Choose your model size: Any compression of large language models
+without re-computation. Transactions on Machine Learning Research , 2025.
+18
+
+
+--- Page 19 / 25 ---
+
+Mor Geva, Roei Schuster, Jonathan Berant, and Omer Levy. Transformer feed-forward layers are key-
+value memories. In Proceedings of the Conference on Empirical Methods in Natural Language Processing
+(EMNLP), pp. 5484–5495, 2021.
+Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasupat, and Ming-Wei Chang. REALM: Retrieval-
+augmented language model pre-training. In International Conference on Machine Learning (ICML) , pp.
+3929–3938, 2020.
+Peter Hase, Mohit Bansal, Been Kim, and Asma Ghandeharioun. Does localization inform editing? Surpris-
+ing diﬀerences in causality-based localization vs. knowledge editing in language models. In Advances in
+Neural Information Processing Systems (NeurIPS) , volume 36, pp. 17643–17668, 2023.
+Jordan Hoﬀmann, Sebastian Borgeaud, Arthur Mensch, Elena Buchatskaya, Trevor Cai, Eliza Rutherford,
+Diego de Las Casas, Lisa Anne Hendricks, Johannes Welbl, Aidan Clark, et al. Training compute-optimal
+large language models. In Advances in Neural Information Processing Systems (NeurIPS) , volume 35, pp.
+30016–30030, 2022.
+Coleman Hooper, Sehoon Kim, Hiva Mohammadzadeh, Michael W Mahoney, Yakun Sophia Shao, Kurt
+Keutzer, and Amir Gholami. KVQuant: Towards 10 million context length LLM inference with KV
+cache quantization. In Advances in Neural Information Processing Systems (NeurIPS) , volume 37, pp.
+1270–1303, 2024.
+Wei Huang, Yangdong Liu, Haotong Qin, Ying Li, Shiming Zhang, Xianglong Liu, Michele Magno, and Xi-
+aojuan Qi. BiLLM: Pushing the limit of post-training quantization for LLMs. In International Conference
+on Machine Learning (ICML) , pp. 20023–20042, 2024.
+Ajay Jaiswal, Zhe Gan, Xianzhi Du, Bowen Zhang, Zhangyang Wang, and Yinfei Yang. Compressing LLMs:
+The truth is rarely pure and never simple. In International Conference on Learning Representations
+(ICLR), 2024.
+Nikhil Kandpal, Haikang Deng, Adam Roberts, Eric Wallace, and Colin Raﬀel. Large language models
+struggle to learn long-tail knowledge. In International Conference on Machine Learning (ICML) , pp.
+15696–15707, 2023.
+Hans Kellerer, Ulrich Pferschy, and David Pisinger. Knapsack Problems. Springer, 2004.
+Sehoon Kim, Coleman Hooper, Amir Gholami, Zhen Dong, Xiuyu Li, Sheng Shen, Michael W Mahoney,
+and Kurt Keutzer. SqueezeLLM: Dense-and-sparse quantization. In International Conference on Machine
+Learning (ICML), pp. 23901–23923, 2024.
+Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E Gon-
+zalez, Hao Zhang, and Ion Stoica. Eﬃcient memory management for large language model serving with
+PagedAttention. In Proceedings of the 29th ACM Symposium on Operating Systems Principles (SOSP) ,
+pp. 611–626, 2023.
+Daniël Lakens. Equivalence tests: A practical primer for t tests, correlations, and meta-analyses. Social
+Psychological and Personality Science , 8(4):355–362, 2017.
+Changhun Lee, Jungyu Jin, Taesu Kim, Hyungjun Kim, and Eunhyeok Park. OWQ: Outlier-aware weight
+quantization for eﬃcient ﬁne-tuning and inference of large language models. In Proceedings of the AAAI
+Conference on Artiﬁcial Intelligence , volume 38, pp. 13355–13364, 2024.
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich
+Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. Retrieval-
+augmented generation for knowledge-intensive NLP tasks. In Advances in Neural Information Processing
+Systems (NeurIPS) , volume 33, pp. 9459–9474, 2020.
+19
+
+
+--- Page 20 / 25 ---
+
+Ji Lin, Jiaming Tang, Haotian Tang, Shang Yang, Wei-Ming Chen, Wei-Chen Wang, Guangxuan Xiao,
+Xingyu Dang, Chuang Gan, and Song Han. A WQ: Activation-aware weight quantization for LLM com-
+pression and acceleration. In Proceedings of Machine Learning and Systems (MLSys), volume 6, pp. 87–100,
+2024.
+Yujun Lin, Haotian Tang, Shang Yang, Zhekai Zhang, Guangxuan Xiao, Chuang Gan, and Song Han.
+QServe: W4A8KV4 quantization and system co-design for eﬃcient LLM serving. In Proceedings of Machine
+Learning and Systems (MLSys) , volume 7, 2025.
+Zechun Liu, Changsheng Zhao, Igor Fedorov, Bilge Soran, Dhruv Choudhary, Raghuraman Krishnamoorthi,
+Vikas Chandra, Yuandong Tian, and Tijmen Blankevoort. SpinQuant: LLM quantization with learned
+rotations. In International Conference on Learning Representations (ICLR) , 2025.
+Zirui Liu, Jiayi Yuan, Hongye Jin, Shaochen Zhong, Zhaozhuo Xu, Vladimir Braverman, Beidi Chen, and
+Xia Hu. KIVI: A tuning-free asymmetric 2bit quantization for KV cache. In International Conference on
+Machine Learning (ICML) , pp. 32332–32344, 2024.
+Shuming Ma, Hongyu Wang, Lingxiao Ma, Lei Wang, Wenhui Wang, Shaohan Huang, Li Dong, Ruiping
+Wang, Jilong Xue, and Furu Wei. The era of 1-bit LLMs: All large language models are in 1.58 bits. arXiv
+preprint arXiv:2402.17764 , 2024.
+Kevin Meng, David Bau, Alex Andonian, and Yonatan Belinkov. Locating and editing factual associations
+in GPT. In Advances in Neural Information Processing Systems (NeurIPS) , volume 35, pp. 17359–17372,
+2022.
+Stephen Merity, Caiming Xiong, James Bradbury, and Richard Socher. Pointer sentinel mixture models. In
+International Conference on Learning Representations (ICLR) , 2017.
+Catherine Olsson, Nelson Elhage, Neel Nanda, Nicholas Joseph, Nova DasSarma, Tom Henighan, Ben Mann,
+Amanda Askell, Yuntao Bai, Anna Chen, Tom Conerly, Dawn Drain, Deep Ganguli, Zac Hatﬁeld-Dodds,
+Danny Hernandez, Andy Jones, Jackson Kernion, Liane Lovitt, Kamal Ndousse, Dario Amodei, Tom
+Brown, Jack Clark, Jared Kaplan, Sam McCandlish, and Chris Olah. In-context learning and induction
+heads. Transformer Circuits Thread, 2022.
+Gunho Park, Baeseong Park, Minsub Kim, Sungjae Lee, Jeonghoon Kim, Beomseok Kwon, Se Jung Kwon,
+Byeongwook Kim, Youngjoo Lee, and Dongsoo Lee. LUT-GEMM: Quantized matrix multiplication based
+on LUTs for eﬃcient inference in large-scale generative language models. In International Conference on
+Learning Representations (ICLR) , 2024.
+Qwen Team. Qwen2.5 technical report. arXiv preprint arXiv:2412.15115 , 2024.
+Alec Radford, Jeﬀrey Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. Language models
+are unsupervised multitask learners. OpenAI Technical Report, 2019.
+Stephen Robertson and Hugo Zaragoza. The probabilistic relevance framework: BM25 and beyond. Foun-
+dations and Trends in Information Retrieval , 3(4):333–389, 2009.
+Yuzhang Shang, Zhihang Yuan, Qiang Wu, and Zhen Dong. PB-LLM: Partially binarized large language
+models. In International Conference on Learning Representations (ICLR) , 2024.
+Wenqi Shao, Mengzhao Chen, Zhaoyang Zhang, Peng Xu, Lirui Zhao, Zhiqian Li, Kaipeng Zhang, Peng
+Gao, Yu Qiao, and Ping Luo. OmniQuant: Omnidirectionally calibrated quantization for large language
+models. In International Conference on Learning Representations (ICLR) , 2024.
+Ying Sheng, Lianmin Zheng, Binhang Yuan, Zhuohan Li, Max Ryabinin, Beidi Chen, Percy Liang, Christo-
+pher Ré, Ion Stoica, and Ce Zhang. FlexGen: High-throughput generative inference of large language
+models with a single GPU. In International Conference on Machine Learning (ICML) , pp. 31094–31116,
+2023.
+20
+
+
+--- Page 21 / 25 ---
+
+Jianlin Su, Murtadha Ahmed, Yu Lu, Shengfeng Pan, Wen Bo, and Yunfeng Liu. RoFormer: Enhanced
+transformer with rotary position embedding. Neurocomputing, 568:127063, 2024.
+Albert Tseng, Jerry Chee, Qinghao Sun, Volodymyr Kuleshov, and Christopher De Sa. QuIP#: Even better
+LLM quantization with Hadamard incoherence and lattice codebooks. In International Conference on
+Machine Learning (ICML) , pp. 48630–48656, 2024.
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser,
+and Illia Polosukhin. Attention is all you need. In Advances in Neural Information Processing Systems
+(NeurIPS), volume 30, pp. 5998–6008, 2017.
+Lei Wang, Lingxiao Ma, Shijie Cao, Quanlu Zhang, Jilong Xue, Yining Shi, Ningxin Zheng, Ziming Miao,
+Fan Yang, Ting Cao, Yuqing Yang, and Mao Yang. Ladder: Enabling eﬃcient low-precision deep learning
+computing through hardware-aware tensor transformation. In 18th USENIX Symposium on Operating
+Systems Design and Implementation (OSDI) , pp. 307–323, 2024.
+Per-Åke Wedin. Perturbation bounds in connection with singular value decomposition. BIT Numerical
+Mathematics, 12(1):99–111, 1972.
+Frank Wilcoxon. Individual comparisons by ranking methods. Biometrics Bulletin , 1(6):80–83, 1945.
+Guangxuan Xiao, Ji Lin, Mickael Seznec, Hao Wu, Julien Demouth, and Song Han. SmoothQuant: Accurate
+and eﬃcient post-training quantization for large language models. In International Conference on Machine
+Learning (ICML), pp. 38087–38099, 2023.
+Guangxuan Xiao, Yuandong Tian, Beidi Chen, Song Han, and Mike Lewis. Eﬃcient streaming language
+models with attention sinks. In International Conference on Learning Representations (ICLR) , 2024.
+A Formal Proofs
+A.1 Proof of Theorem 1 and Lemma 1
+Proof of Theorem 1. Part 1(a) (W edin subspace stability). Let M = W ⊤
+q Wk ∈ Rd×d have singular
+value decomposition M = ∑dk
+r=1σrurv⊤
+r with σ1 > σ2 ≥ · · · ≥ 0 and gap ∆σ = σ1 −σ2 > 0. Let
+ˆM = M + EM with ∥EM ∥2 < ∆σ. By Weyl’s singular value perturbation inequality, ˆσ1 ≥ σ1 − ∥EM ∥2,
+so the cross-gap separating the perturbed leading singular value ˆσ1 from the unperturbed trailing spectrum
+{σ2,...,σ dk } satisﬁes
+δ ≡ ˆσ1 −σ2 ≥σ1 −σ2 − ∥EM ∥2 = ∆σ − ∥EM ∥2 > 0. (8)
+Applying Wedin’s sin Θ theorem (Wedin, 1972) to the rank- 1 leading singular subspaces (u1, v1) and (ˆu1, ˆv1)
+with residual norms bounded by ∥EM ∥2 yields
+max
+{
+sin Θ(u1, ˆu1), sin Θ(v1, ˆv1)
+}
+≤ ∥EM ∥2
+δ ≤ ∥EM ∥2
+∆σ − ∥EM ∥2
+. (9)
+Part 1(b) (Argmax routing invariance). For query xt and context tokens {xj}t
+j=1 with Rx =
+max1≤j≤t ∥xj∥2 (so ∥xt∥2 ≤ Rx), let j∗ = arg max jSt,j with margin γmin = min j̸=j∗ (St,j∗ −St,j) > 0.
+For every distractor j ̸=j∗,
+ˆSt,j∗ − ˆSt,j = (St,j∗ −St,j) + 1√dk
+x⊤
+t EM (xj∗ − xj). (10)
+By Cauchy–Schwarz and operator-norm submultiplicativity,
+⏐⏐⏐⏐
+1√dk
+x⊤
+t EM (xj∗ − xj)
+⏐⏐⏐⏐ ≤ ∥xt∥2 ∥EM ∥2 (∥xj∗ ∥2 + ∥xj∥2)√dk
+≤ 2R2
+x√dk
+∥EM ∥2. (11)
+21
+
+
+--- Page 22 / 25 ---
+
+Thus ∥EM ∥2 < γmin
+√dk/(2R2
+x) implies ˆSt,j∗ − ˆSt,j > 0 for all j ̸= j∗, strictly preserving arg maxj ˆAt,j =
+j∗. (Under RoPE with orthogonal Rt−j, the same bound holds replacing ∥EM ∥2 with max1≤j≤t ∥ ˆMt−j −
+Mt−j∥2.)
+Part 2 (First-order linearized MLP noise sensitivity). Replacing ψ((km − ek,m)⊤x) with its ﬁrst-
+order linearization ψ(k⊤
+mx) −ψ′(k⊤
+mx)(e⊤
+k,mx) (exact for piecewise-linear ψ within an active linear region;
+for general C 2 activations this isolates the linear perturbation and omits the 1
+2ψ′′(k⊤
+mx)(e⊤
+k,mx)2 curvature
+bias) yields the linearized readout
+ˆylin(x) = vm∗ψ(k⊤
+m∗ x)/ˆraˆehtipupleft /ˆraˆehtipdownright/ˆraˆehtipdownleft/ˆraˆehtipupright
+signal s
++
+∑
+j̸=m∗
+vjψ(k⊤
+j x)
+/ˆraˆehtipupleft /ˆraˆehtipdownright/ˆraˆehtipdownleft /ˆraˆehtipupright
+crosstalk ξ
+−
+dmlp∑
+m=1
+(
+ev,mψ(k⊤
+mx) + vmψ′(k⊤
+mx)(e⊤
+k,mx)
+)
+/ˆraˆehtipupleft /ˆraˆehtipdownright/ˆraˆehtipdownleft /ˆraˆehtipupright
+ﬁrst-order noise η1
++
+dmlp∑
+m=1
+ev,mψ′(k⊤
+mx)(e⊤
+k,mx)
+/ˆraˆehtipupleft /ˆraˆehtipdownright/ˆraˆehtipdownleft /ˆraˆehtipupright
+bilinear term η11
+.
+(12)
+Let ηlin = −η1 + η11. Since ev,m and ek,m are independent, zero-mean across m, and independent of x with
+E[ev,me⊤
+v,m′] = δm,m′σ2
+EId and E[ek,me⊤
+k,m′] = δm,m′σ2
+EIdin , all cross terms vanish in expectation. For each
+neuronm, E[∥ev,m∥2
+2] = dσ2
+E and E[(e⊤
+k,mx)2 | x] = x⊤(σ2
+EIdin )x =σ2
+E∥x∥2
+2. Summing over m = 1,...,d mlp
+yields
+E[∥ηlin∥2
+2] = σ2
+E
+dmlp∑
+m=1
+∥vm∥2
+2 E
+[
+ψ′(k⊤
+mx)2∥x∥2
+2
+]
++dσ 2
+E
+dmlp∑
+m=1
+E
+[
+ψ(k⊤
+mx)2]
++ O(σ4
+E), (13)
+where E[∥η11∥2
+2] = dσ4
+E
+∑
+m E[ψ′(k⊤
+mx)2∥x∥2
+2] = O(σ4
+E). Dividing signal power E[∥s∥2
+2] by Icrosstalk +
+E[∥ηlin∥2
+2] yields ( 5). Projecting onto unit vector um∗ = vm∗/∥vm∗ ∥2 replaces E[∥ev,m∥2
+2] = dσ2
+E with
+E[(u⊤
+m∗ ev,m)2] = σ2
+E, replaces ∥vm∥2
+2 with (u⊤
+m∗ vm)2, and replaces Icrosstalk with E[(u⊤
+m∗ ξ)2].
+Lemma 1 (Softmax Jacobian sensitivity of sharp attention heads) . Let a = softmax( s) ∈ ∆T −1 have
+Jacobian J = diag( a) − aa⊤. Then J ⪰ 0 with ∥J ∥2 = max ∥v∥2=1 Vara(v), where Vara(v) ≡ ∑T
+i=1aiv2
+i −
+(∑T
+i=1aivi)2. Moreover, if maxjaj = 1 −ϵ with ϵ ∈ [0, 1 − 1/T ], then ∥J ∥2 ≤ 2ϵ.
+Proof. For any unit vector v ∈ RT , v⊤J v = Var a(v) ≥ 0, so J ⪰ 0 and ∥J ∥2 = λmax(J ). Let k =
+arg maxjaj withak = 1 −ϵ and ∑
+j̸=kaj =ϵ. Applying Gershgorin’s circle theorem to every row i: for i =k,
+diagonal entry is (1 −ϵ)ϵ and oﬀ-diagonal absolute sum is (1 −ϵ)ϵ, bounding the disk by 2ϵ(1 −ϵ) ≤ 2ϵ; for
+i ̸=k, diagonal entry is ai(1 −ai) and oﬀ-diagonal sum is ai(1 −ai), bounding the disk by 2ai(1 −ai) ≤ 2ϵ.
+Hence ∥J ∥2 ≤ 2ϵ. (By the Mean Value Theorem, bounding ﬁnite perturbations ∥softmax(s + ∆s) − a∥2 ≤
+2ϵmax∥∆s∥2 requires sharpness maxjaj(t) ≥ 1 −ϵmax along the segment s +t∆s, t ∈ [0, 1].)
+A.2 Proof of Proposition 1
+Proof of Proposition 1. Relaxing xi,b ∈ {0, 1} in ( 6) to xi,b ∈ [0, 1] yields the Linear Programming Multiple-
+Choice Knapsack upper bound VLP ≥ V ∗
+DP (Kellerer et al. , 2004). Within each class Pi, removing simple-
+dominated choices (equal or larger byte cost with lower or equal utility, eliminating Si(b′) = Si(b)) and LP-
+dominated choices leaves strictly increasing LP-undominated upper-concave-hull points (bi,0,bi,1,... ) with
+monotonically non-increasing incremental slopes ei. Starting from the feasible minimum-cost assignment
+{bi,0}, the exact LP optimum applies upgrades in descending order of ei and terminates at a single split
+tensori∗ with fractional weight θ ∈ [0, 1) on upgrade b1 →b2. Dropping that single fractional upgrade yields
+the truncated integer greedy solution VGreedy, satisfyingV ∗
+DP−VGreedy ≤VLP−VGreedy =θ(vi∗ (b2)−vi∗ (b1)) ≤
+maxi;b1,b2∈Pi (vi(b2) −vi(b1)).
+22
+
+
+--- Page 23 / 25 ---
+
+B Algorithmic Speciﬁcations
+Algorithm 1 speciﬁes the mathematically exact Schur-complement Block-Cholesky Hessian update restricted
+to non-outlier columns Oc (following GPTQ’s Cholesky-of- H −1 reformulation, Frantar et al., 2023) together
+with the output-scale reﬁnement blend implemented in M15. Algorithm 2 summarizes the deferred-reduction
+Split-K fused Triton kernel used for single-token ( N = 1) decode in Section 5.3.
+Algorithm 1 Damped block-Cholesky Hessian compensation restricted to non-outlier columns
+Require: Weight matrix W ∈ Rdout×din , calibration activations X∈ RNcal×din , block size B = gsz∈{ 128, 256},
+target bits b∈{ log2 3, 2, 3, 4}, outlier ratio ρ∈{ 0.0035, 0.005}.
+Ensure: Quantized non-outlier matrix ˆW:,Oc and sparse high-precision outlier bank W:,O.
+1: Select top-⌈ρdin⌉ outlier columnsO maximizing∥W:,j∥2∥X:,j∥2; letOc ={0, . . . , din− 1}\O of size Kc =|Oc|.
+2: Extract Wcurr← W:,Oc and compute uncentered Gram matrix H← 2
+Ncal
+X ⊤
+:,Oc X:,Oc in FP32.
+3: Damp diagonal H← H + λI with λ = 0.02 Tr(H)/Kc (escalating λ if factorization fails).
+4: Invert H −1 and compute upper Cholesky factor U← Cholesky(H −1, upper = True) such that H −1 = U ⊤U .
+5: for j = 0, B, 2B, . . . ,⌊(Kc− 1)/B⌋B do
+6: B←{ j, . . . ,min(j + B, Kc)− 1},R←{ min(j + B, Kc), . . . , Kc− 1}.
+7: Run sequential column-by-column intra-block Cholesky recursion over c∈B using UB,B to produce quantized
+codes ˆW:,B and scaled error block EB = (Wcurr,:,B− ˆW:,B) U −1
+B,B; reﬁne block scales via 0.35 sgroup + 0.65 sHess-opt
+with sHess-opt,r =⟨ytrue,r, ypred,r⟩/∥ypred,r∥2
+2.
+8: ifR̸ =∅ then
+9: Wcurr,:,R← Wcurr,:,R− EB UB,R ▷ Lazy rank- B Schur-complement block propagation
+10: end if
+11: end for
+12: return Packed ˆW:,Oc (5-trit/byte if b = log 2 3, else b-bit uint8) and outlier bank (O, W:,O).
+Algorithm 2 Deferred-reduction Split-K fused Triton linear kernel for N = 1 decode
+Require: Coalesced packed weights P ∈ uint8Gr Bpack×R (R = dout, K = din, Bpack = gsz/(8/b)), quantized
+scales/mins (Su8, Mu8) ∈ uint8Gr ×R, per-row FP16 bounds (smin, sstep, mmin, mstep), A WQ inverse channel
+scales sinv∈ RK (0.0 atO), int8 outlier bank (O, Wout∈ int8Nout×R, sout∈ FP16R), input X∈ BF16N ×K .
+Ensure: Zero-initialized FP32 output buﬀer Y ∈ RN ×R (accumulated in L2).
+1: Launch 3D grid (⌈R/BLOCK_R⌉, G CT As+ 1Nout>0, N ) with IDs (pidr, pidg, pidn).
+2: Initialize local FP32 sub-tile register accumulator Tcta← 0∈ R16×BLOCK_R (vectorizing 16 packed bytes per
+sub-step).
+3: if pidg < G CT As then
+4: for each group g∈ [pidg· GROUPS_PER_CTA, min((pidg + 1)· GROUPS_PER_CTA, Gr)) do
+5: Unpack b-bit codes from P in 16-byte sub-steps; scale x by sinv; accumulate Tdot∈ R16×BLOCK_R and
+tx∈ R16.
+6: Reconstruct s = smin + su8sstep and m = mmin + mu8mstep (length-BLOCK_R); update Tcta += Tdot⊙
+s[None, :] + tx[:, None]⊙ m[None, :].
+7: end for
+8: else if Nout > 0 then
+9: for each 16-column sub-step across Nout salient columnsO (masking trailing lanes when 16 ∤ Nout) do
+10: Gather unscaled xO and int8 weights Wout; accumulate Tcta += Wout⊙ xO[:, None].
+11: end for
+12: Apply per-row FP16 outlier scale: Tcta← Tcta⊙ sout[None, :].
+13: end if
+14: Reduce a←
+∑
+axis=0 Tcta and write Y [pidn, oﬀsr] += a via FP32 tl.atomic_add (non-deterministic across
+CTAs).
+23
+
+
+--- Page 24 / 25 ---
+
+C Audited Preregistered Blind Prediction Ledger (M10, M10B, M11)
+Table 7 logs all 18 preregistered blind predictions sealed under LOCK_v1 with full forensic audit status—
+explicitly removing the hardcoded 0.048 clamp in P_M11_2, noting true ratio values, and separating purely
+empirical LLM measurements from analytical/synthetic entries.
+Table 7: Forensically audited ledger of all 18 preregistered blind predictions across M10, M10B, and M11. Valid
+empirical real-LLM predictions achieve 7/12 hits inside preregistered 95% PIs (or 8/12 counting extrapolated
+P_LOCK_3), alongside two BPE-ﬂoor invalidated entries and four analytical/synthetic entries ( 18 total).
+ID Metric Pred. 95% PI T rue Actual Audited Status
+M10 / P_LOCK_1 Excess loss exponent γ 0.416 [0 .32, 0.51] 0.457 Yes (empirical)
+M10 / P_LOCK_2 Factual survival ROC-AUC (3b) 0.720 [0 .68, 0.76] 0.720 Yes (empirical)
+M10 / P_LOCK_3 Half-life ratio (Def. 3 excess) 4.10× [2.50, 5.70] 0.98×∗ No (excess) ; 3.47× extrap.
+M10 / P_LOCK_4 Core saturation slope 0.000 [ −0.05, 0.15] 0.098 Analytical formula
+M10 / P_LOCK_5 Fact-swap skill ∆ 0.020 [0 .00, 0.04] 0.060 No (F-0007)
+M10 / P_LOCK_6 Compression Pareto ∆ 0.080 [0 .02, 0.15] 0.080† Yes (vs. ﬁxed 0.260 base)
+M10B / P_M10B_1 Family-mean half-life ratio 4.80× [2.50, 7.50] 2.92× Yes (2.38× unweighted)
+M10B / P_M10B_2 Core saturation slope 0.025 [ −0.05, 0.12] 0.029 Analytical formula
+M10B / P_M10B_3 Mean factual survival AUC 0.730 [0 .68, 0.78] 0.609 No (empirical)
+M10B / P_M10B_4 Discrete knapsack γ 0.420 [0 .30, 0.52] 0.398 Yes (empirical)
+M10B / P_M10B_5 Cross-scale Pareto advantage 0.050 [0 .01, 0.15] 0.140 Yes (empirical)
+M10B / P_M10B_6 Peak Apple M2 MPS (GB) 2.80 [1 .50, 3.50] 2.31 Analytical formula
+M11 / P_M11_1 Standalone KAC skill ∆ 0.080 [0 .03, 0.15] 0.000 No (BPE ﬂoor)
+M11 / P_M11_2 KAC excess loss gap (nats) 0.050 [ −0.05, 0.20] −1.041 No (beat PI; clamp rejected)
+M11 / P_M11_3 Skill retention ratio 0.980 [0 .95, 1.00] 1.000 Invalid (BPE ﬂoor)
+M11 / P_M11_4 RAG recovery ratio vs. FP16 0.935 [0 .90, 0.98] 1.155 No ( 97% vs. 84% FP16)
+M11 / P_M11_5 Core DL fraction (backbone) 0.185 [0 .15, 0.22] 0.211 Yes (0.314 full model)
+M11 / P_M11_6 MLX decode speedup 3.80× [3.00, 5.50] 2.30× No (synth. 16L MLP)
+∗M10 / P_LOCK_3 : procedural skill stayed ≥ 34% (uncrossed); raw bound > 1.54×, extrapolated 3.47×, chance-corrected excess ratio
+0.98×. †P_LOCK_6 compared 0.340 (3-way chance) against hardcoded 0.260 baseline. P_M11_2 originally overwrote −1.041 with hardcoded
+0.048; true value reported here.
+24
+
+
+--- Page 25 / 25 ---
+
+D Selected 52-Layer Quantized Muse-Glimmer-30B Generation Transcripts
+Table 8 reproduces verbatim excerpts from our two real 52-layer Muse-Glimmer-30B runs on A100 hard-
+ware, explicitly labeling whether each prompt was In-Calibration (Prompts 1–4 of the 4-shard Phase 2
+BF16-reconstructed run) or Unseen (Prompt 5 and the live 8.00 GiB-wall Split-K Triton daemon smoke
+test), and preserving repetition artifacts verbatim.
+Table 8: Selected verbatim autoregressive excerpts from real 52-layer Muse-Glimmer-30B runs (110-token
+cap for 4-shard Phase 2; 32-token cap for the live 8.00 GiB-wall Split-K Triton daemon). Prompts overlapping
+the 4-shard A WQ calibration batch are tagged In-Calib; held-out prompts are tagged Unseen.
+Engine / Status Prompt V erbatim Output Excerpt (Measured Throughput)
+52L 4-Shard Phase
+2 ( 51.97 GiB BF16
+recon.; In-Calib)
+Prompt 2: If all
+Bloops are Razzies
+and all Razzies are
+Lazzies, are all
+Bloops deﬁnitely
+Lazzies?
+“Yes, all Bloops are deﬁnitely Lazzies. The reasoning is a classic one: if every
+Bloop is a Razzies and every Razzies is a Lazzies, then by transitivity every
+Bloop is a Lazzies. In formal terms: if A ⊆B and B ⊆C then A ⊆C. ” (88 toks
+in 7.59 s, 11.6 tok/s)
+52L 4-Shard Phase
+2 ( 51.97 GiB BF16
+recon.; In-Calib)
+Prompt 3: What is
+the diﬀerence between
+a process and a thread
+in an operating
+system?
+“ ...A process is a unit of resource allocation, while a thread is a unit of execution.
+The diﬀerence between a process and a thread in an operating system is that a
+process is a container of resources... ” [repeats paragraph 1 verbatim] ( 110 toks in
+9.43 s, 11.7 tok/s)
+52L 4-Shard Phase
+2 ( 51.97 GiB BF16
+recon.; Unseen)
+Prompt 5: A train
+travels 120 km in 2
+hours, and then 180
+km in 3 hours. What
+is its average speed?
+“First, ﬁnd the total distance: Total distance = 120 + 180 = 300 km. Next, ﬁnd
+the total time: Total time = 2 hours + 3 hours = 5 hours. Now the average” [hit
+110-tok cap] ( 110 toks in 9.42 s, 11.7 tok/s)
+52L Fused Triton
+(7.29 GiB alloc. /
+7.92 GiB smi +
+3.26 GiB CPU;
+Unseen)
+Smoke test: What is
+12 * 12?
+“What is 12 * 12? = 144\n\nThe multiplication of two numbers is the product
+of the numbers. The result is 144.\n\nThe multiplication” [hit 32-tok cap] ( 32
+toks in 3.556 s, 9.0 tok/s)
+25

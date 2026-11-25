@@ -1,0 +1,138 @@
+{
+  "milestone": "M7",
+  "verdict": "PASS",
+  "all_criteria_passed": true,
+  "total_wall_clock_sec": 5.961708068847656,
+  "hardware": {
+    "platform": "macOS-27.0-arm64-arm-64bit",
+    "processor": "arm",
+    "machine": "arm64",
+    "python_version": "3.11.17",
+    "torch_version": "2.14.1",
+    "mps_available": true,
+    "mps_built": true,
+    "apple_silicon_chip": "Apple M2",
+    "ram_gb": 8.0
+  },
+  "preregistration": {
+    "path": "prereg/M7.md",
+    "sha256": "8e48adf1f24caa463a4d44b1b0893f156cd529684cc7ff509a3f1369dc965c98",
+    "verified": true
+  },
+  "acceptance_criteria": {
+    "C1_exponent_matching": {
+      "passed": true,
+      "alphas": {
+        "alpha_0.3": {
+          "target_alpha": 0.3,
+          "mean_gamma": 0.35889632305656005,
+          "std_gamma": 0.00011654027339795977,
+          "gamma_ci_95": [
+            0.35873227480107683,
+            0.3589920796418457
+          ],
+          "exponent_matches": true,
+          "mean_survival_auc": 0.851739395876451,
+          "auc_passed": true,
+          "mean_b_half_fact": 16001.84488220077
+        },
+        "alpha_0.6": {
+          "target_alpha": 0.6,
+          "mean_gamma": 0.6049850176602397,
+          "std_gamma": 8.150922289166665e-05,
+          "gamma_ci_95": [
+            0.6048705633559496,
+            0.6050541102789452
+          ],
+          "exponent_matches": true,
+          "mean_survival_auc": 0.8695137010763174,
+          "auc_passed": true,
+          "mean_b_half_fact": 15628.955661966835
+        },
+        "alpha_1.0": {
+          "target_alpha": 1.0,
+          "mean_gamma": 0.9762828035293313,
+          "std_gamma": 7.529492991919342e-05,
+          "gamma_ci_95": [
+            0.9761810181478001,
+            0.9763607848115557
+          ],
+          "exponent_matches": true,
+          "mean_survival_auc": 0.8951501961079037,
+          "auc_passed": true,
+          "mean_b_half_fact": 15450.592534514739
+        }
+      }
+    },
+    "C2_survival_auc": {
+      "passed": true,
+      "mean_auc": 0.872134431020224
+    },
+    "C3_half_life_asymmetry": {
+      "passed": true,
+      "ratio": 6.583058618860467,
+      "b_half_fact": 15628.955661966835,
+      "b_half_skill": 2374.117650599353
+    },
+    "C4_knapsack_gap": {
+      "passed": true,
+      "relative_gap": 0.005180406218475539
+    },
+    "C5_multi_seed_stability": {
+      "passed": true
+    },
+    "C6_automated_audits": {
+      "passed": true
+    }
+  },
+  "knapsack_gap": {
+    "v_exact": 1373.8697700950654,
+    "v_greedy": 1366.7525665946894,
+    "absolute_gap": 7.117203500376036,
+    "relative_gap": 0.005180406218475539,
+    "within_one_percent": true
+  },
+  "alpha_evaluations": {
+    "alpha_0.3": {
+      "target_alpha": 0.3,
+      "mean_gamma": 0.35889632305656005,
+      "std_gamma": 0.00011654027339795977,
+      "gamma_ci_95": [
+        0.35873227480107683,
+        0.3589920796418457
+      ],
+      "exponent_matches": true,
+      "mean_survival_auc": 0.851739395876451,
+      "auc_passed": true,
+      "mean_b_half_fact": 16001.84488220077
+    },
+    "alpha_0.6": {
+      "target_alpha": 0.6,
+      "mean_gamma": 0.6049850176602397,
+      "std_gamma": 8.150922289166665e-05,
+      "gamma_ci_95": [
+        0.6048705633559496,
+        0.6050541102789452
+      ],
+      "exponent_matches": true,
+      "mean_survival_auc": 0.8695137010763174,
+      "auc_passed": true,
+      "mean_b_half_fact": 15628.955661966835
+    },
+    "alpha_1.0": {
+      "target_alpha": 1.0,
+      "mean_gamma": 0.9762828035293313,
+      "std_gamma": 7.529492991919342e-05,
+      "gamma_ci_95": [
+        0.9761810181478001,
+        0.9763607848115557
+      ],
+      "exponent_matches": true,
+      "mean_survival_auc": 0.8951501961079037,
+      "auc_passed": true,
+      "mean_b_half_fact": 15450.592534514739
+    }
+  },
+  "run_id": "m7_theory_s42",
+  "provenance_path": "results/runs/m7_theory_s42"
+}

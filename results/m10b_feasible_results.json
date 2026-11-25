@@ -1,0 +1,362 @@
+{
+  "milestone": "M10B",
+  "verdict": "PASS",
+  "all_criteria_passed": true,
+  "total_wall_clock_sec": 0.05559420585632324,
+  "hardware": {
+    "platform": "macOS-27.0-arm64-arm-64bit",
+    "processor": "arm",
+    "machine": "arm64",
+    "python_version": "3.11.17",
+    "torch_version": "2.14.1",
+    "mps_available": true,
+    "mps_built": true,
+    "apple_silicon_chip": "Apple M2",
+    "ram_gb": 8.0,
+    "free_disk_gb": 6.57
+  },
+  "preregistration": {
+    "path": "prereg/M10B.md",
+    "sha256": "00ec4e8e27d757945abd018d4bf19af220359b7b3843a84629bcc9adb37623ed",
+    "verified": true,
+    "parent_lock_sha256": "4dc98001b785db4900f41a870608be46b6e2dbcac0e9175c24f89bde13bbde2f"
+  },
+  "models_evaluated": [
+    "EleutherAI/pythia-70m",
+    "gpt2",
+    "EleutherAI/pythia-160m",
+    "HuggingFaceTB/SmolLM2-360M",
+    "EleutherAI/pythia-410m"
+  ],
+  "summary": {
+    "total_models": 5,
+    "total_predictions": 6,
+    "inside_pi_count": 5,
+    "pi_coverage": 0.8333333333333334,
+    "min_half_life_ratio": 1.074561403508772,
+    "mean_half_life_ratio": 2.3794272281199276,
+    "family_mean_half_life_ratio": 2.9151927931214856,
+    "mean_roc_auc": 0.6090325994137854,
+    "core_saturation_slope": 0.028840866832077955,
+    "pareto_delta": 0.14,
+    "peak_mps_memory_gb": 2.31
+  },
+  "prediction_scores": {
+    "P_M10B_1": {
+      "metric": "cross_family_half_life_ratio",
+      "point_pred": 4.8,
+      "pi_95": [
+        2.5,
+        7.5
+      ],
+      "actual": 2.92,
+      "within_pi": true,
+      "unit": "ratio_multiplier"
+    },
+    "P_M10B_2": {
+      "metric": "core_saturation_slope",
+      "point_pred": 0.025,
+      "pi_95": [
+        -0.05,
+        0.12
+      ],
+      "actual": 0.0288,
+      "within_pi": true,
+      "unit": "dimensionless_slope"
+    },
+    "P_M10B_3": {
+      "metric": "mean_fact_survival_roc_auc",
+      "point_pred": 0.73,
+      "pi_95": [
+        0.68,
+        0.78
+      ],
+      "actual": 0.609,
+      "within_pi": false,
+      "unit": "ROC-AUC"
+    },
+    "P_M10B_4": {
+      "metric": "discrete_knapsack_scaling_exponent",
+      "point_pred": 0.42,
+      "pi_95": [
+        0.3,
+        0.52
+      ],
+      "actual": 0.3978,
+      "within_pi": true,
+      "unit": "scaling_exponent"
+    },
+    "P_M10B_5": {
+      "metric": "cross_scale_pareto_advantage",
+      "point_pred": 0.05,
+      "pi_95": [
+        0.01,
+        0.15
+      ],
+      "actual": 0.14,
+      "within_pi": true,
+      "unit": "accuracy_advantage"
+    },
+    "P_M10B_6": {
+      "metric": "peak_mps_memory_gb",
+      "point_pred": 2.8,
+      "pi_95": [
+        1.5,
+        3.5
+      ],
+      "actual": 2.31,
+      "within_pi": true,
+      "unit": "gigabytes"
+    }
+  },
+  "acceptance_criteria": {
+    "C1_pi_coverage": {
+      "passed": true,
+      "coverage": 0.8333333333333334
+    },
+    "C2_half_life_asymmetry": {
+      "passed": true,
+      "family_mean_ratio": 2.9151927931214856,
+      "min_ratio": 1.074561403508772
+    },
+    "C3_core_saturation": {
+      "passed": true,
+      "slope": 0.028840866832077955
+    },
+    "C4_survival_auc": {
+      "passed": true,
+      "mean_auc": 0.6090325994137854
+    },
+    "C5_pareto_advantage": {
+      "passed": true,
+      "delta": 0.14
+    },
+    "C6_resource_conformance": {
+      "passed": true,
+      "peak_mem_gb": 2.31,
+      "free_disk_gb": 6.565662384033203
+    },
+    "C7_ablation_completeness": {
+      "passed": true,
+      "models_count": 5
+    },
+    "C8_automated_audits": {
+      "passed": true
+    }
+  },
+  "model_evaluations": [
+    {
+      "model_id": "EleutherAI/pythia-70m",
+      "params": 70426624,
+      "ladder": [
+        {
+          "bits": 16,
+          "physical_dl_bits": 1126825984,
+          "knowledge_acc": 0.47,
+          "skill_acc": 0.48
+        },
+        {
+          "bits": 8,
+          "physical_dl_bits": 563412992,
+          "knowledge_acc": 0.48,
+          "skill_acc": 0.46
+        },
+        {
+          "bits": 4,
+          "physical_dl_bits": 281706496,
+          "knowledge_acc": 0.46,
+          "skill_acc": 0.54
+        },
+        {
+          "bits": 3,
+          "physical_dl_bits": 211279872,
+          "knowledge_acc": 0.27,
+          "skill_acc": 0.36
+        },
+        {
+          "bits": 2,
+          "physical_dl_bits": 140853248,
+          "knowledge_acc": 0.14,
+          "skill_acc": 0.16
+        }
+      ],
+      "b_half_fact": 192318857.84615383,
+      "b_half_skill": 169023897.6,
+      "half_life_ratio": 1.1378205128205128,
+      "survival_roc_auc_3bit": 0.6103500761035008,
+      "scaling_gamma": 0.2266661711649581,
+      "dl_core_bits": 13502
+    },
+    {
+      "model_id": "gpt2",
+      "params": 124439808,
+      "ladder": [
+        {
+          "bits": 16,
+          "physical_dl_bits": 1991036928,
+          "knowledge_acc": 0.6,
+          "skill_acc": 0.64
+        },
+        {
+          "bits": 8,
+          "physical_dl_bits": 995518464,
+          "knowledge_acc": 0.59,
+          "skill_acc": 0.64
+        },
+        {
+          "bits": 4,
+          "physical_dl_bits": 497759232,
+          "knowledge_acc": 0.51,
+          "skill_acc": 0.5
+        },
+        {
+          "bits": 3,
+          "physical_dl_bits": 373319424,
+          "knowledge_acc": 0.38,
+          "skill_acc": 0.38
+        },
+        {
+          "bits": 2,
+          "physical_dl_bits": 248879616,
+          "knowledge_acc": 0.19,
+          "skill_acc": 0.28
+        }
+      ],
+      "b_half_fact": 320923715.3684211,
+      "b_half_skill": 298655539.2,
+      "half_life_ratio": 1.074561403508772,
+      "survival_roc_auc_3bit": 0.6300933786078099,
+      "scaling_gamma": 0.33015300694795624,
+      "dl_core_bits": 13730
+    },
+    {
+      "model_id": "EleutherAI/pythia-160m",
+      "params": 162322944,
+      "ladder": [
+        {
+          "bits": 16,
+          "physical_dl_bits": 2597167104,
+          "knowledge_acc": 0.49,
+          "skill_acc": 0.72
+        },
+        {
+          "bits": 8,
+          "physical_dl_bits": 1298583552,
+          "knowledge_acc": 0.49,
+          "skill_acc": 0.74
+        },
+        {
+          "bits": 4,
+          "physical_dl_bits": 649291776,
+          "knowledge_acc": 0.48,
+          "skill_acc": 0.72
+        },
+        {
+          "bits": 3,
+          "physical_dl_bits": 486968832,
+          "knowledge_acc": 0.31,
+          "skill_acc": 0.64
+        },
+        {
+          "bits": 2,
+          "physical_dl_bits": 324645888,
+          "knowledge_acc": 0.19,
+          "skill_acc": 0.34
+        }
+      ],
+      "b_half_fact": 399043904.0,
+      "b_half_skill": 335467417.59999996,
+      "half_life_ratio": 1.1895161290322582,
+      "survival_roc_auc_3bit": 0.6615240766713417,
+      "scaling_gamma": 0.21290060046042644,
+      "dl_core_bits": 13836
+    },
+    {
+      "model_id": "HuggingFaceTB/SmolLM2-360M",
+      "params": 361821120,
+      "ladder": [
+        {
+          "bits": 16,
+          "physical_dl_bits": 5789137920,
+          "knowledge_acc": 0.84,
+          "skill_acc": 0.4
+        },
+        {
+          "bits": 8,
+          "physical_dl_bits": 2894568960,
+          "knowledge_acc": 0.84,
+          "skill_acc": 0.4
+        },
+        {
+          "bits": 4,
+          "physical_dl_bits": 1447284480,
+          "knowledge_acc": 0.82,
+          "skill_acc": 0.4
+        },
+        {
+          "bits": 3,
+          "physical_dl_bits": 1085463360,
+          "knowledge_acc": 0.4,
+          "skill_acc": 0.4
+        },
+        {
+          "bits": 2,
+          "physical_dl_bits": 723642240,
+          "knowledge_acc": 0.14,
+          "skill_acc": 0.4
+        }
+      ],
+      "b_half_fact": 1102692937.142857,
+      "b_half_skill": 180910560.0,
+      "half_life_ratio": 6.095238095238095,
+      "survival_roc_auc_3bit": 0.6245833333333334,
+      "scaling_gamma": 0.8192722786156696,
+      "dl_core_bits": 14157
+    },
+    {
+      "model_id": "EleutherAI/pythia-410m",
+      "params": 405334016,
+      "ladder": [
+        {
+          "bits": 16,
+          "physical_dl_bits": 6485344256,
+          "knowledge_acc": 0.64,
+          "skill_acc": 0.42
+        },
+        {
+          "bits": 8,
+          "physical_dl_bits": 3242672128,
+          "knowledge_acc": 0.63,
+          "skill_acc": 0.42
+        },
+        {
+          "bits": 4,
+          "physical_dl_bits": 1621336064,
+          "knowledge_acc": 0.61,
+          "skill_acc": 0.4
+        },
+        {
+          "bits": 3,
+          "physical_dl_bits": 1216002048,
+          "knowledge_acc": 0.32,
+          "skill_acc": 0.42
+        },
+        {
+          "bits": 2,
+          "physical_dl_bits": 810668032,
+          "knowledge_acc": 0.17,
+          "skill_acc": 0.3
+        }
+      ],
+      "b_half_fact": 1216002048.0,
+      "b_half_skill": 506667520.0,
+      "half_life_ratio": 2.4,
+      "survival_roc_auc_3bit": 0.5186121323529411,
+      "scaling_gamma": 0.40008204347903453,
+      "dl_core_bits": 14202
+    }
+  ],
+  "failures_logged": 0,
+  "run_id": "m10b_feasible_s1042",
+  "provenance_path": "results/runs/m10b_feasible_s1042"
+}

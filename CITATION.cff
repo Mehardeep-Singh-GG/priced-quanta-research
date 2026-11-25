@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+title: "Priced-Quanta: Decoupling Algorithmic Routing from Associative Memory for Sub-4-Bit and 8 GiB Edge Language Model Serving"
+message: "If you reference this paper, raw experimental data, or code, please cite the authors below."
+type: software
+authors:
+  - given-names: Mehardeep
+    family-names: Singh
+    alias: Mehardeep-Singh-GG
+  - given-names: Gurarpit
+    family-names: Singh
+    alias: gurarpitzz
+repository-code: "https://github.com/Mehardeep-Singh-GG/priced-quanta-research"
+version: "1.0.0"
+date-released: "2026-11-25"
+license: MIT

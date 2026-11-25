@@ -1,0 +1,272 @@
+{
+  "milestone": "M4",
+  "gate": "alpha",
+  "timestamp": "2026-10-09 13:51:05 UTC",
+  "git_sha": "760fb87ccb74507d7700fddc4950bcde54d046f7",
+  "prereg_hash": "6224953cfcf2f1b0a31a1f957c6b912bb90d2d55f004e49b6080ca1d42c223f1",
+  "prereg_passed": true,
+  "device": "mps",
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "hardware": {
+    "platform": "macOS-27.0-arm64-arm-64bit",
+    "processor": "arm",
+    "machine": "arm64",
+    "python_version": "3.11.17 (main, Oct  3 2026, 00:54:14) [Clang 22.1.3 ]",
+    "torch_version": "2.14.1",
+    "mps_available": true,
+    "mps_built": true,
+    "cuda_available": false,
+    "apple_silicon_chip": "Apple M2",
+    "ram_bytes": 8589934592,
+    "ram_gb": 8.0
+  },
+  "duration_sec": 57.57577610015869,
+  "gate_alpha_passed": true,
+  "gate_alpha_checks": {
+    "C1_additivity_gap": {
+      "name": "Additivity Gap <= 5%",
+      "achieved": 2.506024096385542,
+      "threshold": 5.0,
+      "passed": true
+    },
+    "C2_loocv_r2": {
+      "name": "Leave-One-Out Cross-Validation R^2 >= 0.90",
+      "achieved": 0.9950613781013359,
+      "threshold": 0.9,
+      "passed": true
+    },
+    "C3_competing_models": {
+      "name": "AIC/BIC Decisive Superiority over Alternatives",
+      "achieved": "Delta AIC > 10 vs all alternatives",
+      "passed": true
+    },
+    "C4_skill_saturation": {
+      "name": "Skill Saturation Exponent gamma upper CI <= 0.30",
+      "achieved": 0.15347635926234338,
+      "threshold": 0.3,
+      "passed": true
+    },
+    "C5_c_alg_precision": {
+      "name": "c_alg 95% Bootstrap CI Relative Width <= 30%",
+      "achieved": 10.247146751095674,
+      "threshold": 30.0,
+      "passed": true
+    },
+    "C6_dual_ruler_concordance": {
+      "name": "Dual Ruler Spearman rho >= 0.90",
+      "achieved": 0.9873853848291193,
+      "threshold": 0.9,
+      "passed": true
+    },
+    "C7_invariant_lower_bound": {
+      "name": "DL >= I_facts Invariant",
+      "achieved": "All DL >= I_facts",
+      "passed": true
+    }
+  },
+  "fit_results": {
+    "c_alg": 6.847823177531395,
+    "c_alg_95_ci": [
+      6.589829330576767,
+      7.291535820833952
+    ],
+    "c_alg_relative_ci_width": 0.10247146751095673,
+    "kappa": 0.5215519300258038,
+    "kappa_95_ci": [
+      0.515395315467968,
+      0.5302912679903157
+    ],
+    "delta": 10498.533764638776,
+    "delta_95_ci": [
+      10183.947512791789,
+      10741.96841927916
+    ],
+    "eta": 2.8537791221813698,
+    "r_squared": 0.9956393956440652,
+    "ss_res": 27606813.172189802,
+    "ss_tot": 6330960325.4
+  },
+  "model_comparison": {
+    "model_1_lean": {
+      "name": "LEAN Composition Law (c_alg * K + I_facts / kappa + delta)",
+      "rss": 27502980.711696662,
+      "r2_in_sample": 0.9956557963882108,
+      "r2_loocv": 0.9950613781013359,
+      "aic": 788.1276230434333,
+      "bic": 794.4106567300996
+    },
+    "model_2_naive": {
+      "name": "Naive Scaling (beta_0 + beta_1 * N)",
+      "rss": 149973268.91283953,
+      "r2_in_sample": 0.9763111342980397,
+      "r2_loocv": 0.9748358595296585,
+      "aic": 887.8973840025936,
+      "bic": 892.0860731270378,
+      "delta_aic": 99.7697609591603,
+      "delta_bic": 97.6754163969382
+    },
+    "model_3_multiplicative": {
+      "name": "Multiplicative Entanglement (beta_0 + beta_1 * (I * K))",
+      "rss": 2188705975.233964,
+      "r2_in_sample": 0.6542853117476015,
+      "r2_loocv": 0.6331046729151844,
+      "aic": 1048.7339059015835,
+      "bic": 1052.9225950260277,
+      "delta_aic": 260.60628285815017,
+      "delta_bic": 258.5119382959281
+    },
+    "model_4_pure_facts": {
+      "name": "Pure Facts / No Skill Term (beta_0 + beta_1 * I_facts)",
+      "rss": 1716646397.3066664,
+      "r2_in_sample": 0.7288489724979905,
+      "r2_loocv": 0.7097828719588364,
+      "aic": 1034.1576335960776,
+      "bic": 1038.3463227205218,
+      "delta_aic": 246.03001055264428,
+      "delta_bic": 243.9356659904222
+    },
+    "lean_beats_all": true
+  },
+  "additivity_evaluations": [
+    {
+      "skill": "S1_Copy",
+      "facts": "F1",
+      "dl_composite": 17707.666666666668,
+      "dl_facts_only": 16735.0,
+      "dl_skills_only": 11433.0,
+      "dl_interaction": 0.0,
+      "gap_percent": 1.0635694520264223,
+      "passed": true
+    },
+    {
+      "skill": "S1_Copy",
+      "facts": "F2",
+      "dl_composite": 22029.666666666668,
+      "dl_facts_only": 20787.333333333332,
+      "dl_skills_only": 11433.0,
+      "dl_interaction": 0.0,
+      "gap_percent": 2.0790146620466503,
+      "passed": true
+    },
+    {
+      "skill": "S1_Copy",
+      "facts": "F3",
+      "dl_composite": 35201.666666666664,
+      "dl_facts_only": 33795.333333333336,
+      "dl_skills_only": 11433.0,
+      "dl_interaction": 0.0,
+      "gap_percent": 1.7669617915818174,
+      "passed": true
+    },
+    {
+      "skill": "S3_Three",
+      "facts": "F1",
+      "dl_composite": 20583.666666666668,
+      "dl_facts_only": 16735.0,
+      "dl_skills_only": 14137.333333333334,
+      "dl_interaction": 0.0,
+      "gap_percent": 1.748959531019723,
+      "passed": true
+    },
+    {
+      "skill": "S3_Three",
+      "facts": "F2",
+      "dl_composite": 24900.0,
+      "dl_facts_only": 20787.333333333332,
+      "dl_skills_only": 14137.333333333334,
+      "dl_interaction": 0.0,
+      "gap_percent": 2.506024096385542,
+      "passed": true
+    },
+    {
+      "skill": "S3_Three",
+      "facts": "F3",
+      "dl_composite": 38072.666666666664,
+      "dl_facts_only": 33795.333333333336,
+      "dl_skills_only": 14137.333333333334,
+      "dl_interaction": 0.0,
+      "gap_percent": 2.071477350330045,
+      "passed": true
+    },
+    {
+      "skill": "S6_Six",
+      "facts": "F1",
+      "dl_composite": 24559.333333333332,
+      "dl_facts_only": 16735.0,
+      "dl_skills_only": 18151.666666666668,
+      "dl_interaction": 0.0,
+      "gap_percent": 1.30839599337655,
+      "passed": true
+    },
+    {
+      "skill": "S6_Six",
+      "facts": "F2",
+      "dl_composite": 28859.333333333332,
+      "dl_facts_only": 20787.333333333332,
+      "dl_skills_only": 18151.666666666668,
+      "dl_interaction": 0.0,
+      "gap_percent": 1.9716325163436312,
+      "passed": true
+    },
+    {
+      "skill": "S6_Six",
+      "facts": "F3",
+      "dl_composite": 41987.333333333336,
+      "dl_facts_only": 33795.333333333336,
+      "dl_skills_only": 18151.666666666668,
+      "dl_interaction": 0.0,
+      "gap_percent": 1.6409710865181564,
+      "passed": true
+    },
+    {
+      "skill": "S9_All",
+      "facts": "F1",
+      "dl_composite": 31629.666666666668,
+      "dl_facts_only": 16735.0,
+      "dl_skills_only": 23613.0,
+      "dl_interaction": 1561.6666666666667,
+      "gap_percent": 1.165572405652913,
+      "passed": true
+    },
+    {
+      "skill": "S9_All",
+      "facts": "F2",
+      "dl_composite": 35860.0,
+      "dl_facts_only": 20787.333333333332,
+      "dl_skills_only": 23613.0,
+      "dl_interaction": 1545.3333333333333,
+      "gap_percent": 1.569994422755159,
+      "passed": true
+    },
+    {
+      "skill": "S9_All",
+      "facts": "F3",
+      "dl_composite": 49245.666666666664,
+      "dl_facts_only": 33795.333333333336,
+      "dl_skills_only": 23613.0,
+      "dl_interaction": 1839.3333333333333,
+      "gap_percent": 1.3131443037289041,
+      "passed": true
+    }
+  ],
+  "saturation_analysis": {
+    "gamma_point": 0.09933279898890064,
+    "gamma_95_ci": [
+      0.05367782087309303,
+      0.15347635926234338
+    ],
+    "std_err": 0.01672177364960916,
+    "r_squared": 0.9216454081147968,
+    "saturates": true
+  },
+  "ruler_concordance": {
+    "spearman_rho": 0.9873853848291193,
+    "p_value": 3.9738219554584056e-48
+  },
+  "run_id": "m4_composition_s42",
+  "provenance_path": "results/runs/m4_composition_s42"
+}
